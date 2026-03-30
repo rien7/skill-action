@@ -170,6 +170,19 @@ describe("ActionRuntime", () => {
     }
   });
 
+  it("returns protocol-level failure when executeAction input is invalid before execution starts", async () => {
+    const runtime = createRuntime();
+    const response = await runtime.executeAction({
+      action_id: "math.add",
+      input: { a: "bad", b: 2 },
+    });
+
+    expect(response.ok).toBe(false);
+    if (!response.ok) {
+      expect(response.error.code).toBe("INVALID_INPUT");
+    }
+  });
+
   it("executes a composite action deterministically", async () => {
     const runtime = createRuntime();
     const response = await runtime.executeAction({
@@ -212,6 +225,62 @@ describe("ActionRuntime", () => {
     expect(response.ok).toBe(false);
     if (!response.ok) {
       expect(response.error.code).toBe("VISIBILITY_VIOLATION");
+    }
+  });
+
+  it("returns a failed execution result after execution has started", async () => {
+    const actions = new InMemoryActionRegistry([
+      {
+        definition: {
+          action_id: "math.explode",
+          version: "1.0.0",
+          kind: "primitive",
+          title: "Explode",
+          description: "Always fails during execution",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "public",
+          side_effect: "none",
+          idempotent: true,
+        },
+      },
+    ]);
+
+    const runtime = new ActionRuntime({
+      actionRegistry: actions,
+      skillRegistry: new InMemorySkillRegistry(),
+      primitiveHandlers: {
+        "math.explode": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+
+    const response = await runtime.executeAction({
+      action_id: "math.explode",
+      input: { value: 1 },
+    });
+
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(response.data.status).toBe("failed");
+      expect(response.data.output).toBeNull();
+      expect(response.data.trace.steps).toHaveLength(1);
+      expect(response.data.trace.steps[0]?.status).toBe("failed");
     }
   });
 });

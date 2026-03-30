@@ -128,14 +128,15 @@ export class ActionRuntime {
         currentSkillId: undefined,
       });
 
-      const output = await this.executeRegisteredAction(action, parsed.input, state, {
+      // Root input validation is protocol-level; if this fails, execution never starts.
+      this.validateAgainstSchema(action, "input", parsed.input);
+
+      const result = await this.executeStartedAction(action, parsed.input, state, {
         depth: 1,
         callMode: "external-action",
         currentSkillId: undefined,
         tracePath: undefined,
       });
-
-      const result = this.buildExecutionResult(state, output);
       return this.success(meta, result);
     });
   }
@@ -155,16 +156,31 @@ export class ActionRuntime {
         currentSkillId: skill.definition.skill_id,
       });
 
-      const output = await this.executeRegisteredAction(action, parsed.input, state, {
+      // Root input validation is protocol-level; if this fails, execution never starts.
+      this.validateAgainstSchema(action, "input", parsed.input);
+
+      const result = await this.executeStartedAction(action, parsed.input, state, {
         depth: 1,
         callMode: "skill-entry",
         currentSkillId: skill.definition.skill_id,
         tracePath: undefined,
       });
-
-      const result = this.buildExecutionResult(state, output);
       return this.success(meta, result);
     });
+  }
+
+  private async executeStartedAction(
+    action: RegisteredAction,
+    input: unknown,
+    state: ExecutionState,
+    context: InvocationContext,
+  ): Promise<ExecutionResult> {
+    try {
+      const output = await this.executeRegisteredAction(action, input, state, context, false);
+      return this.buildExecutionResult(state, "succeeded", output);
+    } catch {
+      return this.buildExecutionResult(state, "failed", null);
+    }
   }
 
   private async executeRegisteredAction(
@@ -172,6 +188,7 @@ export class ActionRuntime {
     input: unknown,
     state: ExecutionState,
     context: InvocationContext,
+    validateInput = true,
   ): Promise<unknown> {
     if (context.depth > state.options.max_depth) {
       throw new RuntimeError("MAX_DEPTH_EXCEEDED", "Maximum execution depth exceeded.", {
@@ -179,20 +196,32 @@ export class ActionRuntime {
       });
     }
 
-    this.validateAgainstSchema(action, "input", input);
+    if (validateInput) {
+      this.validateAgainstSchema(action, "input", input);
+    }
 
     const effectiveSkillId = context.currentSkillId ?? action.skillId;
     if (action.definition.kind === "primitive") {
-      return this.executePrimitive(action as RegisteredAction & { definition: PrimitiveActionDefinition }, input, state, {
-        ...context,
-        currentSkillId: effectiveSkillId,
-      });
+      return this.executePrimitive(
+        action as RegisteredAction & { definition: PrimitiveActionDefinition },
+        input,
+        state,
+        {
+          ...context,
+          currentSkillId: effectiveSkillId,
+        },
+      );
     }
 
-    return this.executeComposite(action as RegisteredAction & { definition: CompositeActionDefinition }, input, state, {
-      ...context,
-      currentSkillId: effectiveSkillId,
-    });
+    return this.executeComposite(
+      action as RegisteredAction & { definition: CompositeActionDefinition },
+      input,
+      state,
+      {
+        ...context,
+        currentSkillId: effectiveSkillId,
+      },
+    );
   }
 
   private async executePrimitive(
@@ -285,29 +314,29 @@ export class ActionRuntime {
         stepOutputs,
       };
 
-      if (step.if && !evaluateCondition(step.if, bindingState)) {
-        state.trace.push({
-          step_id: stepId,
-          action_id: step.action,
-          status: "skipped",
-          input: null,
-          output: null,
-          error: null,
-          started_at: startedAt,
-          finished_at: new Date().toISOString(),
-        });
-        continue;
-      }
-
-      const nestedInput = resolveBindings(step.with, bindingState);
-      const nestedAction = await this.actionRegistry.resolve(step.action);
-
-      this.assertVisibility(nestedAction, {
-        callMode: "nested",
-        currentSkillId: context.currentSkillId,
-      });
-
       try {
+        if (step.if && !evaluateCondition(step.if, bindingState)) {
+          this.pushTrace(state, {
+            step_id: stepId,
+            action_id: step.action,
+            status: "skipped",
+            input: null,
+            output: null,
+            error: null,
+            started_at: startedAt,
+            finished_at: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        const nestedInput = resolveBindings(step.with, bindingState);
+        const nestedAction = await this.actionRegistry.resolve(step.action);
+
+        this.assertVisibility(nestedAction, {
+          callMode: "nested",
+          currentSkillId: context.currentSkillId,
+        });
+
         const output = await this.executeRegisteredAction(nestedAction, nestedInput, state, {
           depth: context.depth + 1,
           callMode: "nested",
@@ -317,6 +346,25 @@ export class ActionRuntime {
         stepOutputs[step.id] = output;
         lastOutput = output;
       } catch (error) {
+        if (!this.hasTraceStep(state, stepId)) {
+          this.pushTrace(state, {
+            step_id: stepId,
+            action_id: step.action,
+            status: "failed",
+            input: null,
+            output: null,
+            error: error instanceof RuntimeError
+              ? {
+                  code: error.code,
+                  message: error.message,
+                  details: error.details ?? null,
+                }
+              : error,
+            started_at: startedAt,
+            finished_at: new Date().toISOString(),
+          });
+        }
+
         if (!(error instanceof RuntimeError)) {
           throw new RuntimeError(
             "STEP_EXECUTION_FAILED",
@@ -324,6 +372,7 @@ export class ActionRuntime {
             error,
           );
         }
+
         throw error;
       }
     }
@@ -456,10 +505,14 @@ export class ActionRuntime {
     };
   }
 
-  private buildExecutionResult(state: ExecutionState, output: unknown): ExecutionResult {
+  private buildExecutionResult(
+    state: ExecutionState,
+    status: ExecutionResult["status"],
+    output: unknown,
+  ): ExecutionResult {
     return {
       execution_id: state.executionId,
-      status: "succeeded",
+      status,
       output: output ?? null,
       trace: {
         steps: state.options.trace_level === "none" ? [] : state.trace,
@@ -467,6 +520,14 @@ export class ActionRuntime {
       started_at: state.startedAt,
       finished_at: new Date().toISOString(),
     };
+  }
+
+  private hasTraceStep(state: ExecutionState, stepId: string): boolean {
+    return state.trace.some((step) => step.step_id === stepId);
+  }
+
+  private pushTrace(state: ExecutionState, step: TraceStep): void {
+    state.trace.push(step);
   }
 
   private async respond<T>(
