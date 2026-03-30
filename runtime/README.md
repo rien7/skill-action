@@ -1,4 +1,4 @@
-# `@skill-action/runtime`
+# `@rien7/skill-action-runtime`
 
 TypeScript runtime for the Skill Action RFCs.
 
@@ -14,7 +14,7 @@ The runtime is transport-agnostic and designed to be embedded inside a function 
 ## Install
 
 ```bash
-pnpm add @skill-action/runtime
+pnpm add @rien7/skill-action-runtime
 ```
 
 ## Build
@@ -27,7 +27,7 @@ pnpm check
 ## Quick Start
 
 ```ts
-import { ActionRuntime, InMemoryActionRegistry, InMemorySkillRegistry } from "@skill-action/runtime";
+import { ActionRuntime, InMemoryActionRegistry, InMemorySkillRegistry } from "@rien7/skill-action-runtime";
 
 const actions = new InMemoryActionRegistry([
   {
@@ -87,4 +87,3 @@ console.log(response);
 - Primitive action execution is handler-driven. You register handlers by `action_id`.
 - Composite action output currently defaults to the last successfully executed step output. This is an implementation choice because the RFC does not yet define an explicit composite return mapping.
 - Skill package loading is available through `loadSkillPackageFromDirectory`.
-
