@@ -1,0 +1,11 @@
+{
+  "skill_id": "invalid.skill",
+  "version": "1.0.0",
+  "title": "Invalid Skill",
+  "description": "A deliberately invalid skill package",
+  "entry_action": "workflow.missing",
+  "exposed_actions": [
+    "workflow.missing"
+  ]
+}
+

@@ -1,0 +1,21 @@
+{
+  "action_id": "workflow.wrong-id",
+  "version": "1.0.0",
+  "kind": "primitive",
+  "title": "Wrong Id",
+  "description": "Deliberately mismatched action id and visibility",
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "visibility": "internal",
+  "side_effect": "none",
+  "idempotent": true
+}
+

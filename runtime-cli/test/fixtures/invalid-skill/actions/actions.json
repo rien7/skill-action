@@ -1,0 +1,10 @@
+{
+  "actions": [
+    {
+      "action_id": "workflow.actual",
+      "path": "workflow-actual",
+      "visibility": "public"
+    }
+  ]
+}
+
