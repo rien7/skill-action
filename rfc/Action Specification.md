@@ -34,6 +34,15 @@ The specification explicitly DOES NOT include:
 
 A primitive action is executed directly by a runtime executor.
 
+The action definition describes the contract, not where the executable implementation lives.
+A primitive action MAY be:
+
+- Declared inside a skill package and executed by a package-aware runtime binding
+- Resolved from a runtime-global registration such as CLI, MCP, or another adapter-specific executor
+- Backed by implementation files inside the package, outside the package, or by an adapter bridge
+
+If a primitive action is selected for execution but the runtime cannot locate an executable binding, the runtime MUST report an execution failure.
+
 Examples:
 
 - HTTP request
@@ -85,24 +94,58 @@ Composite actions MUST define steps.
 }
 ```
 
-### 5.2 Execution Semantics
+Step resolution rules:
+
+- `action` MAY reference:
+  - a local `action_id` declared in the current skill package
+  - a fully-qualified runtime-global action reference such as an adapter-qualified or path-qualified identifier
+- For unqualified identifiers, the runtime MUST resolve the current skill package first
+- If no local match exists, the runtime MAY continue resolution using runtime-global registrations
+- If no candidate can be resolved, execution MUST fail deterministically
+
+### 5.2 Returns
+
+Composite actions SHOULD define an explicit `returns` mapping.
+
+```json
+{
+  "returns": {
+    "result": "$steps.finalize.output.result"
+  }
+}
+```
+
+`returns` uses the same binding model as step `with`.
+It is resolved after all reachable steps complete successfully and becomes the composite action's final output.
+
+Compatibility rule:
+
+- If `returns` is omitted, the runtime MUST use the last successfully executed non-skipped step output as the composite output
+- This fallback exists for compatibility and SHOULD NOT be relied on for new action definitions
+
+### 5.3 Execution Semantics
 
 - Steps are executed in order.
 - Each step receives resolved input.
 - Step output is stored in execution context.
 - Steps MAY be conditionally skipped via `if`.
+- After step execution completes, `returns` is resolved if present.
 
 ## 6. Data Binding
 
 ### 6.1 Supported References
 
 - `$input.xxx`
+- `$input`
 - `$steps.step_id.output.xxx`
+- `$steps.step_id.output`
 
 ### 6.2 Resolution Rules
 
-- References MUST resolve before execution.
-- Missing references MUST produce a validation error.
+- Bindings for a step MUST resolve when that step is reached.
+- Bindings inside `returns` MUST resolve after all reachable steps complete.
+- Missing references in a reachable step or in `returns` MUST produce deterministic action execution failure.
+- Bindings in unreachable branches do not need to resolve.
 
 ## 7. Condition Expressions
 
@@ -136,11 +179,15 @@ For each step:
    - Resolve input
    - Execute action
    - Store output
+4. After all reachable steps succeed:
+   - Resolve `returns` if present
+   - Validate final output against `output_schema`
 
 ### 8.2 Failure Behavior
 
 - Default: fail-fast
 - Any step failure -> entire action fails
+- Any `returns` binding failure -> entire action fails
 
 ## 9. Visibility
 
@@ -183,7 +230,7 @@ Each action MUST include:
 
 This specification does NOT define:
 
-- Execution engine
+- Transport-specific execution engine
 - Scheduling
 - Distributed execution
 - Agent behavior

@@ -64,7 +64,10 @@ Protocol-level failure MUST follow:
     "message": "Human readable message",
     "details": {}
   },
-  "meta": {}
+  "meta": {
+    "request_id": "string",
+    "spec_version": "1.0.0"
+  }
 }
 ```
 
@@ -180,7 +183,23 @@ Request:
 }
 ```
 
-## 6. Execution Options
+## 6. Resolution Model
+
+The runtime MAY load actions from more than one source, including:
+
+- actions declared inside loaded skill packages
+- runtime-global registrations such as CLI, MCP, or path-backed adapters
+
+Resolution rules:
+
+- For nested action calls inside a skill, unqualified action identifiers MUST resolve against the current skill package first
+- If no package-local match exists, the runtime MAY resolve against runtime-global registrations
+- A fully-qualified global reference bypasses package-local lookup and targets the named global registration space directly
+- For top-level `resolve_action` and `execute_action`, an unqualified action identifier MUST resolve to exactly one candidate after applying runtime resolution rules
+- If multiple candidates remain for the same top-level unqualified identifier, the runtime MUST return a protocol-level failure
+- If no candidate is found, the runtime MUST return `ACTION_NOT_FOUND`
+
+## 7. Execution Options
 
 ```json
 {
@@ -192,7 +211,16 @@ Request:
 }
 ```
 
-## 7. Execution Result
+Field semantics:
+
+- `dry_run: true` means the runtime validates and traces execution without invoking side-effecting primitive executors
+- `trace_level: "none"` means `trace.steps` MUST be empty
+- `trace_level: "basic"` means per-step execution records MUST be present, and runtimes MAY redact or summarize large `input`, `output`, or `error` payloads
+- `trace_level: "full"` means the runtime SHOULD include the fullest available per-step `input`, `output`, and `error` payloads
+- `timeout_ms` applies only after execution has started, meaning after root resolution, root visibility checks, and root input validation succeed
+- If `timeout_ms` is exceeded after execution has started, the runtime MUST return `ok: true` with `data.status: "failed"`
+
+## 8. Execution Result
 
 `Execution Result` is the payload returned in `data` for successful execution startup of `execute_action` and `execute_skill`.
 It represents both successful and failed executions after the runtime has entered execution.
@@ -215,7 +243,7 @@ Field semantics:
 - `output` MAY be partial, null, or omitted by transport-specific adapters when `status` is `failed`, but the result object itself MUST still be returned
 - `trace` SHOULD contain the execution history available at the point of failure
 
-## 8. Trace Format
+## 9. Trace Format
 
 ```json
 {
@@ -234,54 +262,86 @@ Field semantics:
 }
 ```
 
-## 9. Error Model
+## 10. Error Model
 
-### 9.1 Resolve Errors
+### 10.1 Resolve Errors
 
 These are protocol-level errors.
 
 - `ACTION_NOT_FOUND`
+- `ACTION_RESOLUTION_AMBIGUOUS`
+- `SKILL_NOT_FOUND`
 - `VERSION_NOT_FOUND`
 
-### 9.2 Validation Errors
+### 10.2 Validation Errors
 
 These are protocol-level errors.
 
 - `INVALID_INPUT`
 - `SCHEMA_VALIDATION_FAILED`
 
-### 9.3 Execution Errors
+### 10.3 Execution Errors
 
 These are execution-result errors.
 For `execute_action` and `execute_skill`, they MUST be represented by `ok: true`, `data.status: "failed"`, and execution details in `data`.
 They SHOULD also be reflected in trace entries and MAY be summarized in execution payload fields defined by future revisions.
 
+- `INVALID_CONDITION`
 - `STEP_EXECUTION_FAILED`
 - `ACTION_EXECUTION_FAILED`
 - `TIMEOUT_EXCEEDED`
 - `MAX_DEPTH_EXCEEDED`
 - `MAX_STEPS_EXCEEDED`
 
-### 9.4 Policy Errors
+Examples include:
+
+- a reachable step contains an unresolved binding
+- a reachable nested action cannot be resolved after execution has started
+- a primitive action has no registered CLI/MCP/path/handler executor
+- a composite `returns` mapping cannot be resolved
+- a step output fails schema validation
+
+### 10.4 Policy Errors
 
 Policy errors are protocol-level errors when they prevent execution from starting.
 
 - `VISIBILITY_VIOLATION`
 - `ACTION_NOT_CALLABLE`
 
-## 10. Execution Semantics
+### 10.5 Failure Boundary
 
-### 10.1 Deterministic Execution
+Protocol-level failure applies only before execution starts. This includes:
+
+- root action or skill resolution
+- top-level ambiguity detection
+- root visibility checks
+- root input validation
+- schema compilation failure
+- package or manifest loading failure that prevents entry into execution
+
+Execution-result failure applies after execution starts. This includes:
+
+- condition parsing or evaluation failure
+- reachable binding resolution failure
+- nested action resolution failure
+- nested visibility violation
+- missing primitive executor binding
+- output validation failure
+- timeout and step/depth limit failures
+
+## 11. Execution Semantics
+
+### 11.1 Deterministic Execution
 
 - Steps MUST execute in order
 - No implicit reordering allowed
 
-### 10.2 Condition Evaluation
+### 11.2 Condition Evaluation
 
 - MUST evaluate before execution
 - MUST NOT have side effects
 
-### 10.3 Failure Handling
+### 11.3 Failure Handling
 
 - Default: fail-fast
 - After execution starts, failure MUST produce an `Execution Result` with `status: "failed"` rather than a protocol-level failure envelope

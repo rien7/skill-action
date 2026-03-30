@@ -85,5 +85,5 @@ console.log(response);
 ## Notes
 
 - Primitive action execution is handler-driven. You register handlers by `action_id`.
-- Composite action output currently defaults to the last successfully executed step output. This is an implementation choice because the RFC does not yet define an explicit composite return mapping.
+- The RFC now defines explicit composite `returns` mappings. The current runtime implementation still uses the last successfully executed step output as a compatibility fallback until `returns` support is implemented.
 - Skill package loading is available through `loadSkillPackageFromDirectory`.

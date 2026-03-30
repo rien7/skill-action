@@ -4,6 +4,9 @@
 
 This document defines the Skill Package Specification, a language-agnostic format for organizing and distributing skills and their associated actions.
 
+This specification applies to action-based skill packages.
+Non-action skills may continue to exist for compatibility, but they are outside the validity rules of this document unless explicitly adapted into this structure.
+
 A Skill Package is the primary unit of:
 
 - Capability definition
@@ -33,7 +36,7 @@ The Skill Package MUST NOT:
 
 ## 3. Directory Structure
 
-A Skill Package MUST follow this structure:
+An action-based Skill Package MUST follow this structure:
 
 ```txt
 skill-package/
@@ -139,6 +142,9 @@ actions/
     (implementation files)
 ```
 
+Implementation files are optional.
+For primitive actions, the executable implementation MAY live outside the package and be supplied by a runtime-global registration such as a CLI, MCP, path-based adapter, or another explicit executor binding.
+
 ### 4.5 action.json
 
 Purpose:
@@ -182,13 +188,23 @@ Example:
 
 Actions within the same package MUST reference each other by `action_id`.
 
+Composite steps MAY also reference runtime-global actions using a fully-qualified global identifier.
+
 ### 5.2 Resolution Rules
 
 Runtime MUST:
 
-1. Resolve `action_id` via `actions.json`
-2. Load corresponding `action.json`
-3. Validate consistency
+1. Resolve unqualified `action_id` via the current package first
+2. Load corresponding `action.json` for package-local actions
+3. Validate consistency for package-local actions
+4. Resolve fully-qualified global references via the runtime's global action registry
+
+For unqualified identifiers used inside a skill package:
+
+- package-local actions take precedence
+- runtime-global registrations are fallback resolution only
+
+If a selected action cannot be resolved locally or globally, the runtime MUST report an error deterministically.
 
 ## 6. Entry Action
 
@@ -202,6 +218,7 @@ Requirements:
 - MUST be a valid action
 - SHOULD be a composite action
 - SHOULD represent the main use case
+- MUST resolve within the package itself, not via a global action registry
 
 ## 7. Visibility Model
 
@@ -236,6 +253,27 @@ Actions MUST NOT be inferred from:
 
 All actions MUST be declared in `actions.json`.
 
+### 8.3 External Primitive Bindings
+
+Primitive action definitions MAY depend on executors that are not packaged in the skill itself.
+
+Examples:
+
+- a CLI adapter registered by path
+- an MCP adapter registered in the runtime
+- a host-provided primitive handler module
+
+The package defines the contract for such actions, but not the transport-specific implementation binding.
+If the runtime chooses one of these actions during execution and no binding is registered, the runtime MUST report an execution failure.
+
+### 8.4 Multi-Package Resolution
+
+When multiple skill packages are loaded:
+
+- unqualified action references inside a skill MUST resolve to actions declared in that same skill package before any global fallback is attempted
+- runtime-global CLI/MCP/path registrations MAY satisfy unresolved external references
+- top-level unqualified action lookup MUST be deterministic; ambiguous matches MUST produce an error rather than depending on load order
+
 ## 9. Versioning
 
 ### 9.1 Skill Version
@@ -256,9 +294,15 @@ A valid skill package MUST satisfy:
 
 1. `skill.json` exists and is valid
 2. `actions/actions.json` exists
-3. All actions resolve correctly
-4. All referenced actions exist
+3. All package-local actions resolve correctly
+4. All unqualified package-local references exist
 5. All schemas are valid JSON Schema
+
+Validation boundary:
+
+- package validation MUST verify package-local references such as `entry_action`, `exposed_actions`, and unqualified internal step references
+- package validation MAY record fully-qualified global action references as external dependencies
+- package validation MUST NOT silently infer missing local actions from implementation files or documentation
 
 ## 11. Execution Flow
 
@@ -275,7 +319,7 @@ The Skill Package Specification is designed to:
 - Extend existing skill ecosystems
 - Remain backward compatible with non-action-based skills
 
-Non-action skills MAY omit `actions/`.
+Non-action skills MAY omit `actions/`, but such packages are outside the validity rules of this action-based specification.
 
 ## 13. Non-Goals
 
