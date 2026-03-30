@@ -1,6 +1,6 @@
 {
   "name": "@rien7/skill-action-runtime-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI for the Skill Action runtime.",
   "license": "MIT",
   "type": "module",
@@ -40,7 +40,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@rien7/skill-action-runtime": ">=0.1.0",
+    "@rien7/skill-action-runtime": "0.2.0",
     "commander": "^14.0.3"
   },
   "devDependencies": {
