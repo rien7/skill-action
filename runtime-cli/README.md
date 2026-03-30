@@ -97,6 +97,32 @@ The handler module may export:
 - `fallbackPrimitiveHandler`
 - or a default object containing either field
 
+## Troubleshooting
+
+If the CLI binary is not installed, install the published package:
+
+```bash
+pnpm add -g @rien7/skill-action-runtime-cli
+```
+
+If the CLI reports that no skill packages were found, provide one of:
+
+- `--skill-package <dir>`
+- `--skills-dir <dir>`
+
+or run the command inside a skill package or a repo root that contains `skills/`.
+
+If `resolve-action` or `validate-action-input` returns `ok: false`, treat that as a protocol-level failure such as resolution ambiguity, missing packages, or input validation failure.
+
+If `execute-action` or `execute-skill` returns `ok: true` with `data.status: "failed"`, treat that as an execution failure after startup. Common causes include:
+
+- missing primitive executor bindings
+- reachable binding or `returns` resolution failures
+- nested action resolution failures
+- output validation failures
+
+When a primitive action depends on external execution logic, provide `--handler-module` with exports for `primitiveHandlers`, optional `fallbackPrimitiveHandler`, and optional `globalActions`.
+
 ## Build
 
 ```bash

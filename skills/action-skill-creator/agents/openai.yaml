@@ -1,0 +1,4 @@
+interface:
+  display_name: "Action Skill Creator"
+  short_description: "Create action-based skills from RFCs"
+  default_prompt: "Use $action-skill-creator to create or update an action-based skill package in this repo."

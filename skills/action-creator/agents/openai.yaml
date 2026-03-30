@@ -1,0 +1,4 @@
+interface:
+  display_name: "Action Creator"
+  short_description: "Create RFC-aligned primitive or composite actions"
+  default_prompt: "Use $action-creator to design and implement a new action in this repo."

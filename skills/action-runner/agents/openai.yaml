@@ -1,0 +1,4 @@
+interface:
+  display_name: "Action Runner"
+  short_description: "Run and troubleshoot the Skill Action runtime CLI"
+  default_prompt: "Use $action-runner to inspect or execute skill-action runtime packages through the published CLI."
