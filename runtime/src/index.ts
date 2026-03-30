@@ -15,12 +15,14 @@ export {
   type SkillRegistry,
 } from "./registry/skill-registry.js";
 export { loadSkillPackageFromDirectory } from "./registry/file-system-loader.js";
+export { isRuntimeGlobalActionReference } from "./resolution/action-id.js";
 export {
   actionDefinitionSchema,
   actionManifestSchema,
   actionReferenceSchema,
   compositeActionDefinitionSchema,
   primitiveActionDefinitionSchema,
+  type ActionBindingMap,
   type ActionDefinition,
   type ActionManifest,
   type ActionReference,
@@ -59,4 +61,3 @@ export {
   RUNTIME_ERROR_CODES,
   type RuntimeErrorCode,
 } from "./types/errors.js";
-

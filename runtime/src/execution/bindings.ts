@@ -1,8 +1,15 @@
+import { RuntimeError, type RuntimeErrorCode } from "../types/errors.js";
 import type { JsonObject } from "../types/json.js";
 
 export interface BindingState {
   input: unknown;
   stepOutputs: Record<string, unknown>;
+}
+
+interface ResolveReferenceOptions {
+  strict?: boolean;
+  failureCode?: RuntimeErrorCode;
+  reason?: "binding" | "condition";
 }
 
 function getPathSegments(reference: string): string[] {
@@ -23,13 +30,36 @@ function readPath(source: unknown, segments: string[]): unknown {
   return current;
 }
 
-export function resolveReference(reference: string, state: BindingState): unknown {
+function handleUnresolvedReference(
+  reference: string,
+  options: ResolveReferenceOptions,
+): undefined {
+  if (!options.strict) {
+    return undefined;
+  }
+
+  throw new RuntimeError(
+    options.failureCode ?? "ACTION_EXECUTION_FAILED",
+    `Unresolved ${options.reason ?? "binding"} reference "${reference}".`,
+    {
+      reference,
+      reason: options.reason ?? "binding",
+    },
+  );
+}
+
+export function resolveReference(
+  reference: string,
+  state: BindingState,
+  options: ResolveReferenceOptions = {},
+): unknown {
   if (reference === "$input") {
     return state.input;
   }
 
   if (reference.startsWith("$input.")) {
-    return readPath(state.input, getPathSegments(reference.slice("$input.".length)));
+    const resolved = readPath(state.input, getPathSegments(reference.slice("$input.".length)));
+    return resolved === undefined ? handleUnresolvedReference(reference, options) : resolved;
   }
 
   if (reference.startsWith("$steps.")) {
@@ -37,33 +67,41 @@ export function resolveReference(reference: string, state: BindingState): unknow
     const [stepId, maybeOutput, ...rest] = segments;
 
     if (!stepId || maybeOutput !== "output") {
-      return undefined;
+      return handleUnresolvedReference(reference, options);
     }
 
     const stepOutput = state.stepOutputs[stepId];
-    return rest.length === 0 ? stepOutput : readPath(stepOutput, rest);
+    const resolved = rest.length === 0 ? stepOutput : readPath(stepOutput, rest);
+    return resolved === undefined ? handleUnresolvedReference(reference, options) : resolved;
   }
 
-  return undefined;
+  return handleUnresolvedReference(reference, options);
 }
 
-export function resolveBindings(value: unknown, state: BindingState): unknown {
+export function resolveBindings(
+  value: unknown,
+  state: BindingState,
+  options: ResolveReferenceOptions = {},
+): unknown {
   if (typeof value === "string" && value.startsWith("$")) {
-    return resolveReference(value, state);
+    return resolveReference(value, state, {
+      strict: true,
+      ...(options.failureCode ? { failureCode: options.failureCode } : {}),
+      reason: options.reason ?? "binding",
+    });
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => resolveBindings(item, state));
+    return value.map((item) => resolveBindings(item, state, options));
   }
 
   if (value && typeof value === "object") {
     const entries = Object.entries(value as JsonObject).map(([key, nested]) => [
       key,
-      resolveBindings(nested, state),
+      resolveBindings(nested, state, options),
     ]);
     return Object.fromEntries(entries);
   }
 
   return value;
 }
-

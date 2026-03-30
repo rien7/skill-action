@@ -1,0 +1,10 @@
+{
+  "skill_id": "global.ref.skill",
+  "version": "1.0.0",
+  "title": "Global Ref Skill",
+  "description": "A skill that calls a runtime-global action",
+  "entry_action": "workflow.external",
+  "exposed_actions": [
+    "workflow.external"
+  ]
+}

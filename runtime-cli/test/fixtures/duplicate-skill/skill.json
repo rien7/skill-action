@@ -1,0 +1,10 @@
+{
+  "skill_id": "duplicate.skill",
+  "version": "1.0.0",
+  "title": "Duplicate Skill",
+  "description": "Provides the same top-level action id as another package",
+  "entry_action": "workflow.increment",
+  "exposed_actions": [
+    "workflow.increment"
+  ]
+}

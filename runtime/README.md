@@ -85,5 +85,6 @@ console.log(response);
 ## Notes
 
 - Primitive action execution is handler-driven. You register handlers by `action_id`.
-- The RFC now defines explicit composite `returns` mappings. The current runtime implementation still uses the last successfully executed step output as a compatibility fallback until `returns` support is implemented.
+- The runtime supports skill-local action resolution first, then runtime-global fallback for nested calls.
+- Composite actions support explicit RFC `returns` mappings. If `returns` is omitted, the runtime falls back to the last successfully executed step output for compatibility.
 - Skill package loading is available through `loadSkillPackageFromDirectory`.

@@ -1,9 +1,9 @@
 {
   "action_id": "workflow.increment",
   "version": "1.0.0",
-  "kind": "composite",
-  "title": "Increment",
-  "description": "Increment a number by one via internal helper",
+  "kind": "primitive",
+  "title": "Duplicate Increment",
+  "description": "Conflicts with sample-skill workflow.increment at top level",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -26,17 +26,5 @@
   },
   "visibility": "public",
   "side_effect": "none",
-  "idempotent": true,
-  "steps": [
-    {
-      "id": "addOne",
-      "action": "math.add-one",
-      "with": {
-        "value": "$input.value"
-      }
-    }
-  ],
-  "returns": {
-    "value": "$steps.addOne.output.value"
-  }
+  "idempotent": true
 }

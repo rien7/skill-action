@@ -1,0 +1,9 @@
+{
+  "actions": [
+    {
+      "action_id": "workflow.increment",
+      "path": "workflow-increment",
+      "visibility": "public"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ export interface RegisteredAction {
 
 export interface ActionRegistry {
   resolve(actionId: string, version?: string): Promise<RegisteredAction>;
+  list(actionId: string, version?: string): Promise<RegisteredAction[]>;
 }
 
 export class InMemoryActionRegistry implements ActionRegistry {
@@ -26,20 +27,29 @@ export class InMemoryActionRegistry implements ActionRegistry {
     this.actions.set(action.definition.action_id, existing);
   }
 
+  async list(actionId: string, version?: string): Promise<RegisteredAction[]> {
+    const entries = this.actions.get(actionId) ?? [];
+    if (!version) {
+      return [...entries];
+    }
+
+    return entries.filter((entry) => entry.definition.version === version);
+  }
+
   async resolve(actionId: string, version?: string): Promise<RegisteredAction> {
-    const entries = this.actions.get(actionId);
-    if (!entries || entries.length === 0) {
+    const allEntries = this.actions.get(actionId);
+    if (!allEntries || allEntries.length === 0) {
       throw new RuntimeError("ACTION_NOT_FOUND", `Action "${actionId}" was not found.`, {
         action_id: actionId,
       });
     }
 
     if (!version) {
-      return entries[entries.length - 1]!;
+      return allEntries[allEntries.length - 1]!;
     }
 
-    const match = entries.find((entry) => entry.definition.version === version);
-    if (!match) {
+    const entries = allEntries.filter((entry) => entry.definition.version === version);
+    if (entries.length === 0) {
       throw new RuntimeError(
         "VERSION_NOT_FOUND",
         `Version "${version}" was not found for action "${actionId}".`,
@@ -50,7 +60,6 @@ export class InMemoryActionRegistry implements ActionRegistry {
       );
     }
 
-    return match;
+    return entries[0]!;
   }
 }
-

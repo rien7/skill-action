@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   actionDefinitionSchema,
   actionManifestSchema,
+  isRuntimeGlobalActionReference,
   skillDefinitionSchema,
   type ActionDefinition,
   type ActionManifest,
@@ -36,6 +37,7 @@ export interface PackageValidationResult {
     entry_action: string;
   };
   action_count: number;
+  external_dependencies: string[];
   issues: ValidationIssue[];
 }
 
@@ -162,6 +164,38 @@ async function loadActionDefinitions(
   return definitions;
 }
 
+function validateActionReferences(
+  packageDir: string,
+  actions: Map<string, ActionDefinition>,
+  issues: ValidationIssue[],
+): string[] {
+  const externalDependencies = new Set<string>();
+
+  for (const [actionId, definition] of actions.entries()) {
+    if (definition.kind !== "composite") {
+      continue;
+    }
+
+    for (const step of definition.steps) {
+      if (isRuntimeGlobalActionReference(step.action)) {
+        externalDependencies.add(step.action);
+        continue;
+      }
+
+      if (!actions.has(step.action)) {
+        pushIssue(issues, {
+          code: "ACTION_REFERENCE_NOT_FOUND",
+          message: `Step "${step.id}" in action "${actionId}" references undeclared action "${step.action}".`,
+          package_dir: packageDir,
+          action_id: actionId,
+        });
+      }
+    }
+  }
+
+  return [...externalDependencies].sort();
+}
+
 async function validatePackage(packageDir: string): Promise<PackageValidationResult> {
   const issues: ValidationIssue[] = [];
   const skill = await loadSkillDefinition(packageDir, issues);
@@ -169,9 +203,18 @@ async function validatePackage(packageDir: string): Promise<PackageValidationRes
   const actions = manifest.manifest
     ? await loadActionDefinitions(packageDir, manifest.manifest, issues)
     : new Map<string, ActionDefinition>();
+  const externalDependencies = validateActionReferences(packageDir, actions, issues);
 
   if (skill.definition) {
-    if (!actions.has(skill.definition.entry_action)) {
+    if (isRuntimeGlobalActionReference(skill.definition.entry_action)) {
+      pushIssue(issues, {
+        code: "ENTRY_ACTION_MUST_BE_LOCAL",
+        message: `entry_action "${skill.definition.entry_action}" must resolve to a package-local action.`,
+        package_dir: packageDir,
+        file: skill.filePath,
+        skill_id: skill.definition.skill_id,
+      });
+    } else if (!actions.has(skill.definition.entry_action)) {
       pushIssue(issues, {
         code: "ENTRY_ACTION_NOT_FOUND",
         message: `entry_action "${skill.definition.entry_action}" does not resolve to a declared action.`,
@@ -182,7 +225,7 @@ async function validatePackage(packageDir: string): Promise<PackageValidationRes
     }
 
     for (const actionId of skill.definition.exposed_actions) {
-      if (!actions.has(actionId)) {
+      if (isRuntimeGlobalActionReference(actionId) || !actions.has(actionId)) {
         pushIssue(issues, {
           code: "EXPOSED_ACTION_NOT_FOUND",
           message: `exposed_actions entry "${actionId}" does not resolve to a declared action.`,
@@ -208,6 +251,7 @@ async function validatePackage(packageDir: string): Promise<PackageValidationRes
         }
       : {}),
     action_count: actions.size,
+    external_dependencies: externalDependencies,
     issues,
   };
 }

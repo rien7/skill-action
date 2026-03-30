@@ -166,7 +166,11 @@ function parsePrimary(stream: TokenStream, state: BindingState): unknown {
   }
 
   if (token.type === "reference") {
-    return resolveReference(token.value, state);
+    return resolveReference(token.value, state, {
+      strict: true,
+      failureCode: "INVALID_CONDITION",
+      reason: "condition",
+    });
   }
 
   if (token.type === "number" || token.type === "string" || token.type === "boolean") {
@@ -229,6 +233,10 @@ function parseOr(stream: TokenStream, state: BindingState): unknown {
 export function evaluateCondition(expression: string, state: BindingState): boolean {
   const stream = new TokenStream(tokenize(expression));
   const result = parseOr(stream, state);
+  if (stream.peek()) {
+    throw new RuntimeError("INVALID_CONDITION", "Unexpected trailing token in condition.", {
+      expression,
+    });
+  }
   return Boolean(result);
 }
-

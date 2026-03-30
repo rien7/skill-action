@@ -4,6 +4,7 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 
 import { evaluateCondition } from "../execution/conditions.js";
 import { resolveBindings } from "../execution/bindings.js";
+import { isRuntimeGlobalActionReference } from "../resolution/action-id.js";
 import type { ActionDefinition, CompositeActionDefinition, PrimitiveActionDefinition } from "../types/action.js";
 import { RuntimeError } from "../types/errors.js";
 import {
@@ -69,6 +70,12 @@ interface InvocationContext {
   tracePath: string | undefined;
 }
 
+interface ActionSelectionOptions {
+  version?: string;
+  currentSkillId?: string;
+  requireLocal?: boolean;
+}
+
 export class ActionRuntime {
   private readonly actionRegistry: ActionRegistry;
   private readonly skillRegistry: SkillRegistry;
@@ -89,7 +96,9 @@ export class ActionRuntime {
   ): Promise<RuntimeResponse<{ action: ActionDefinition; skill_id?: string }>> {
     return this.respond(async (meta) => {
       const parsed = resolveActionRequestSchema.parse(request);
-      const action = await this.actionRegistry.resolve(parsed.action_id, parsed.version);
+      const action = await this.resolveActionForRequest(parsed.action_id, {
+        ...(parsed.version ? { version: parsed.version } : {}),
+      });
 
       return this.success(meta, action.skillId
         ? {
@@ -107,7 +116,9 @@ export class ActionRuntime {
   ): Promise<RuntimeResponse<{ valid: true }>> {
     return this.respond(async (meta) => {
       const parsed = validateActionInputRequestSchema.parse(request);
-      const action = await this.actionRegistry.resolve(parsed.action_id, parsed.version);
+      const action = await this.resolveActionForRequest(parsed.action_id, {
+        ...(parsed.version ? { version: parsed.version } : {}),
+      });
       this.validateAgainstSchema(action, "input", parsed.input);
 
       return this.success(meta, { valid: true });
@@ -121,7 +132,7 @@ export class ActionRuntime {
       const parsed = executeActionRequestSchema.parse(request);
       const options = executionOptionsSchema.parse(parsed.options ?? {});
       const state = this.createExecutionState(meta.request_id, options);
-      const action = await this.actionRegistry.resolve(parsed.action_id);
+      const action = await this.resolveActionForRequest(parsed.action_id);
 
       this.assertVisibility(action, {
         callMode: "external-action",
@@ -149,7 +160,10 @@ export class ActionRuntime {
       const options = executionOptionsSchema.parse(parsed.options ?? {});
       const state = this.createExecutionState(meta.request_id, options);
       const skill = await this.skillRegistry.resolve(parsed.skill_id);
-      const action = await this.actionRegistry.resolve(skill.definition.entry_action);
+      const action = await this.resolveActionForRequest(skill.definition.entry_action, {
+        currentSkillId: skill.definition.skill_id,
+        requireLocal: true,
+      });
 
       this.assertVisibility(action, {
         callMode: "skill-entry",
@@ -190,6 +204,8 @@ export class ActionRuntime {
     context: InvocationContext,
     validateInput = true,
   ): Promise<unknown> {
+    this.checkTimeout(state);
+
     if (context.depth > state.options.max_depth) {
       throw new RuntimeError("MAX_DEPTH_EXCEEDED", "Maximum execution depth exceeded.", {
         max_depth: state.options.max_depth,
@@ -262,6 +278,7 @@ export class ActionRuntime {
           requestId: state.requestId,
           currentSkillId: context.currentSkillId,
         });
+        this.checkTimeout(state);
       } catch (cause) {
         error = cause;
         status = "failed";
@@ -305,6 +322,7 @@ export class ActionRuntime {
     let lastOutput: unknown = null;
 
     for (const step of action.definition.steps) {
+      this.checkTimeout(state);
       this.incrementStepCount(state);
 
       const stepId = context.tracePath ? `${context.tracePath}.${step.id}` : step.id;
@@ -330,7 +348,10 @@ export class ActionRuntime {
         }
 
         const nestedInput = resolveBindings(step.with, bindingState);
-        const nestedAction = await this.actionRegistry.resolve(step.action);
+        const nestedAction = await this.resolveActionForRequest(
+          step.action,
+          context.currentSkillId ? { currentSkillId: context.currentSkillId } : {},
+        );
 
         this.assertVisibility(nestedAction, {
           callMode: "nested",
@@ -377,7 +398,15 @@ export class ActionRuntime {
       }
     }
 
-    return lastOutput;
+    const finalOutput = action.definition.returns
+      ? resolveBindings(action.definition.returns, {
+          input,
+          stepOutputs,
+        })
+      : lastOutput;
+
+    this.validateAgainstSchema(action, "output", finalOutput);
+    return finalOutput;
   }
 
   private validateAgainstSchema(
@@ -490,6 +519,81 @@ export class ActionRuntime {
         max_steps: state.options.max_steps,
       });
     }
+  }
+
+  private checkTimeout(state: ExecutionState): void {
+    const elapsedMs = Date.now() - Date.parse(state.startedAt);
+    if (elapsedMs > state.options.timeout_ms) {
+      throw new RuntimeError("TIMEOUT_EXCEEDED", "Execution timeout exceeded.", {
+        timeout_ms: state.options.timeout_ms,
+        elapsed_ms: elapsedMs,
+      });
+    }
+  }
+
+  private async resolveActionForRequest(
+    actionId: string,
+    options: ActionSelectionOptions = {},
+  ): Promise<RegisteredAction> {
+    const candidates = await this.actionRegistry.list(actionId, options.version);
+    const currentSkillId = options.currentSkillId;
+
+    if (isRuntimeGlobalActionReference(actionId)) {
+      const globalCandidates = candidates.filter((candidate) => candidate.skillId === undefined);
+      return this.selectResolvedAction(actionId, globalCandidates, options.version);
+    }
+
+    if (currentSkillId) {
+      const localCandidates = candidates.filter((candidate) => candidate.skillId === currentSkillId);
+      if (localCandidates.length > 0 || options.requireLocal) {
+        return this.selectResolvedAction(actionId, localCandidates, options.version);
+      }
+
+      const globalCandidates = candidates.filter((candidate) => candidate.skillId === undefined);
+      return this.selectResolvedAction(actionId, globalCandidates, options.version);
+    }
+
+    return this.selectResolvedAction(actionId, candidates, options.version);
+  }
+
+  private selectResolvedAction(
+    actionId: string,
+    candidates: RegisteredAction[],
+    version?: string,
+  ): RegisteredAction {
+    if (candidates.length === 1) {
+      return candidates[0]!;
+    }
+
+    if (candidates.length === 0) {
+      throw new RuntimeError(
+        version ? "VERSION_NOT_FOUND" : "ACTION_NOT_FOUND",
+        version
+          ? `Version "${version}" was not found for action "${actionId}".`
+          : `Action "${actionId}" was not found.`,
+        version
+          ? {
+              action_id: actionId,
+              version,
+            }
+          : {
+              action_id: actionId,
+            },
+      );
+    }
+
+    throw new RuntimeError(
+      "ACTION_RESOLUTION_AMBIGUOUS",
+      `Action "${actionId}" resolved to multiple candidates.`,
+      {
+        action_id: actionId,
+        candidates: candidates.map((candidate) => ({
+          version: candidate.definition.version,
+          skill_id: candidate.skillId ?? null,
+          source_path: candidate.sourcePath ?? null,
+        })),
+      },
+    );
   }
 
   private createExecutionState(requestId: string, options: ExecutionOptions): ExecutionState {

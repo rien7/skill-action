@@ -1,5 +1,6 @@
 export const RUNTIME_ERROR_CODES = [
   "ACTION_NOT_FOUND",
+  "ACTION_RESOLUTION_AMBIGUOUS",
   "VERSION_NOT_FOUND",
   "SKILL_NOT_FOUND",
   "INVALID_INPUT",
@@ -27,4 +28,3 @@ export class RuntimeError extends Error {
     this.details = details ?? null;
   }
 }
-

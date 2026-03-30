@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
+const bindingMapSchema = z.record(z.string(), z.unknown());
 
 export const visibilitySchema = z.enum(["public", "skill", "internal"]);
 export const sideEffectSchema = z.enum(["none", "local", "external"]);
@@ -8,7 +9,7 @@ export const sideEffectSchema = z.enum(["none", "local", "external"]);
 export const actionStepSchema = z.object({
   id: z.string().min(1),
   action: z.string().min(1),
-  with: z.record(z.string(), z.unknown()).default({}),
+  with: bindingMapSchema.default({}),
   if: z.string().min(1).optional(),
 });
 
@@ -31,6 +32,7 @@ export const primitiveActionDefinitionSchema = actionBaseSchema.extend({
 export const compositeActionDefinitionSchema = actionBaseSchema.extend({
   kind: z.literal("composite"),
   steps: z.array(actionStepSchema).min(1),
+  returns: bindingMapSchema.optional(),
 });
 
 export const actionDefinitionSchema = z.discriminatedUnion("kind", [
@@ -49,9 +51,9 @@ export const actionManifestSchema = z.object({
 });
 
 export type Visibility = z.infer<typeof visibilitySchema>;
+export type ActionBindingMap = z.infer<typeof bindingMapSchema>;
 export type PrimitiveActionDefinition = z.infer<typeof primitiveActionDefinitionSchema>;
 export type CompositeActionDefinition = z.infer<typeof compositeActionDefinitionSchema>;
 export type ActionDefinition = z.infer<typeof actionDefinitionSchema>;
 export type ActionReference = z.infer<typeof actionReferenceSchema>;
 export type ActionManifest = z.infer<typeof actionManifestSchema>;
-

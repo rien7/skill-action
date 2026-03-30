@@ -1,4 +1,8 @@
-import type { PrimitiveActionHandler, PrimitiveActionHandlerMap } from "@rien7/skill-action-runtime";
+import type {
+  ActionDefinition,
+  PrimitiveActionHandler,
+  PrimitiveActionHandlerMap,
+} from "@rien7/skill-action-runtime";
 
 export interface CommonCommandOptions {
   skillPackage?: string[];
@@ -25,6 +29,7 @@ export interface RuntimeRequestOptions {
 }
 
 export interface HandlerModuleShape {
+  globalActions?: ActionDefinition[];
   primitiveHandlers?: PrimitiveActionHandlerMap;
   fallbackPrimitiveHandler?: PrimitiveActionHandler;
 }

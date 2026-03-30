@@ -114,6 +114,9 @@ function createRuntime() {
             if: "$steps.add.output.sum >= 1 && $input.b >= 1",
           },
         ],
+        returns: {
+          sum: "$steps.addAgain.output.sum",
+        },
       },
     },
   ]);
@@ -183,7 +186,7 @@ describe("ActionRuntime", () => {
     }
   });
 
-  it("executes a composite action deterministically", async () => {
+  it("executes a composite action with explicit returns", async () => {
     const runtime = createRuntime();
     const response = await runtime.executeAction({
       action_id: "workflow.doubleAdd",
@@ -281,6 +284,275 @@ describe("ActionRuntime", () => {
       expect(response.data.output).toBeNull();
       expect(response.data.trace.steps).toHaveLength(1);
       expect(response.data.trace.steps[0]?.status).toBe("failed");
+    }
+  });
+
+  it("fails top-level unqualified resolution when multiple candidates exist", async () => {
+    const runtime = new ActionRuntime({
+      actionRegistry: new InMemoryActionRegistry([
+        {
+          skillId: "skill.one",
+          definition: {
+            action_id: "shared.echo",
+            version: "1.0.0",
+            kind: "primitive",
+            title: "Echo One",
+            description: "First candidate",
+            input_schema: { type: "object", additionalProperties: true },
+            output_schema: { type: "object", additionalProperties: true },
+            visibility: "public",
+            side_effect: "none",
+            idempotent: true,
+          },
+        },
+        {
+          skillId: "skill.two",
+          definition: {
+            action_id: "shared.echo",
+            version: "1.0.0",
+            kind: "primitive",
+            title: "Echo Two",
+            description: "Second candidate",
+            input_schema: { type: "object", additionalProperties: true },
+            output_schema: { type: "object", additionalProperties: true },
+            visibility: "public",
+            side_effect: "none",
+            idempotent: true,
+          },
+        },
+      ]),
+      skillRegistry: new InMemorySkillRegistry(),
+    });
+
+    const response = await runtime.resolveAction({ action_id: "shared.echo" });
+
+    expect(response.ok).toBe(false);
+    if (!response.ok) {
+      expect(response.error.code).toBe("ACTION_RESOLUTION_AMBIGUOUS");
+    }
+  });
+
+  it("prefers skill-local actions before global fallback during nested execution", async () => {
+    const actionRegistry = new InMemoryActionRegistry([
+      {
+        definition: {
+          action_id: "math.add",
+          version: "1.0.0",
+          kind: "primitive",
+          title: "Global Add",
+          description: "Global candidate that should not win nested resolution",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "public",
+          side_effect: "none",
+          idempotent: true,
+        },
+      },
+      {
+        skillId: "sample.skill",
+        definition: {
+          action_id: "math.add",
+          version: "1.0.0",
+          kind: "primitive",
+          title: "Local Add",
+          description: "Skill-local candidate",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "internal",
+          side_effect: "none",
+          idempotent: true,
+        },
+      },
+      {
+        skillId: "sample.skill",
+        definition: {
+          action_id: "workflow.run",
+          version: "1.0.0",
+          kind: "composite",
+          title: "Run",
+          description: "Use local action first",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "public",
+          side_effect: "none",
+          idempotent: true,
+          steps: [
+            {
+              id: "compute",
+              action: "math.add",
+              with: {
+                value: "$input.value",
+              },
+            },
+          ],
+          returns: {
+            value: "$steps.compute.output.value",
+          },
+        },
+      },
+      {
+        definition: {
+          action_id: "util.increment",
+          version: "1.0.0",
+          kind: "primitive",
+          title: "Global Increment",
+          description: "Global fallback action",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "public",
+          side_effect: "none",
+          idempotent: true,
+        },
+      },
+      {
+        skillId: "fallback.skill",
+        definition: {
+          action_id: "workflow.globalFallback",
+          version: "1.0.0",
+          kind: "composite",
+          title: "Fallback",
+          description: "Use global fallback when local action is absent",
+          input_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          output_schema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          },
+          visibility: "public",
+          side_effect: "none",
+          idempotent: true,
+          steps: [
+            {
+              id: "compute",
+              action: "util.increment",
+              with: {
+                value: "$input.value",
+              },
+            },
+          ],
+          returns: {
+            value: "$steps.compute.output.value",
+          },
+        },
+      },
+    ]);
+
+    const skillRegistry = new InMemorySkillRegistry([
+      {
+        definition: {
+          skill_id: "sample.skill",
+          version: "1.0.0",
+          title: "Sample",
+          description: "Uses local action",
+          entry_action: "workflow.run",
+          exposed_actions: ["workflow.run"],
+        },
+      },
+      {
+        definition: {
+          skill_id: "fallback.skill",
+          version: "1.0.0",
+          title: "Fallback",
+          description: "Uses global fallback action",
+          entry_action: "workflow.globalFallback",
+          exposed_actions: ["workflow.globalFallback"],
+        },
+      },
+    ]);
+
+    const runtime = new ActionRuntime({
+      actionRegistry,
+      skillRegistry,
+      primitiveHandlers: {
+        "math.add": ({ currentSkillId, input }) => ({
+          value: (input as { value: number }).value + (currentSkillId === "sample.skill" ? 1 : 100),
+        }),
+        "util.increment": ({ input }) => ({
+          value: (input as { value: number }).value + 10,
+        }),
+      },
+    });
+
+    const localResponse = await runtime.executeSkill({
+      skill_id: "sample.skill",
+      input: { value: 2 },
+    });
+    const fallbackResponse = await runtime.executeSkill({
+      skill_id: "fallback.skill",
+      input: { value: 2 },
+    });
+
+    expect(localResponse.ok).toBe(true);
+    expect(fallbackResponse.ok).toBe(true);
+    if (localResponse.ok && fallbackResponse.ok) {
+      expect(localResponse.data.output).toEqual({ value: 3 });
+      expect(fallbackResponse.data.output).toEqual({ value: 12 });
     }
   });
 });

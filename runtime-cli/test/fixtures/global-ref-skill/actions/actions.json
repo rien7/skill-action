@@ -1,0 +1,9 @@
+{
+  "actions": [
+    {
+      "action_id": "workflow.external",
+      "path": "workflow-external",
+      "visibility": "public"
+    }
+  ]
+}

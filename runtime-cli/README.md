@@ -75,10 +75,12 @@ The validation command checks package-level consistency such as:
 - `exposed_actions` resolve
 - `actions/actions.json` matches `action.json`
 - manifest visibility matches action visibility
+- fully-qualified global action references are reported as external dependencies
 
 ## Primitive Execution
 
-For `execute-action` and `execute-skill`, primitive actions require a handler module.
+For `resolve-action`, `validate-action-input`, `execute-action`, and `execute-skill`, you may provide a handler module.
+The handler module can supply primitive executors and runtime-global action definitions.
 
 ```bash
 skill-action-runtime execute-skill \
@@ -90,6 +92,7 @@ skill-action-runtime execute-skill \
 
 The handler module may export:
 
+- `globalActions`
 - `primitiveHandlers`
 - `fallbackPrimitiveHandler`
 - or a default object containing either field

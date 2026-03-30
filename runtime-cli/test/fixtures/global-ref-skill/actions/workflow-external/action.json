@@ -1,9 +1,9 @@
 {
-  "action_id": "workflow.increment",
+  "action_id": "workflow.external",
   "version": "1.0.0",
   "kind": "composite",
-  "title": "Increment",
-  "description": "Increment a number by one via internal helper",
+  "title": "Workflow External",
+  "description": "Use a fully-qualified global action reference",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -30,7 +30,7 @@
   "steps": [
     {
       "id": "addOne",
-      "action": "math.add-one",
+      "action": "cli://math/add-one",
       "with": {
         "value": "$input.value"
       }

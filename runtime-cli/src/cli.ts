@@ -2,6 +2,7 @@ import { Command, Option } from "commander";
 
 import {
   ActionRuntime,
+  type ActionDefinition,
   type ExecuteActionRequest,
   type ExecuteSkillRequest,
   type ResolveActionRequest,
@@ -14,9 +15,19 @@ import { loadRegistries } from "./load-packages.js";
 import { toExecutionOptions } from "./options.js";
 import { validateSkillPackages } from "./validate-packages.js";
 
+type LoadedRegistries = Awaited<ReturnType<typeof loadRegistries>>;
+type LoadedHandlers = Awaited<ReturnType<typeof loadHandlerModule>>;
+
+interface CommonRuntimeCommandOptions {
+  handlerModule?: string;
+  output?: "json" | "pretty";
+  skillPackage?: string[];
+  skillsDir?: string;
+}
+
 function createRuntimeForCommand(
-  options: Awaited<ReturnType<typeof loadRegistries>>,
-  handlers?: Awaited<ReturnType<typeof loadHandlerModule>>,
+  options: LoadedRegistries,
+  handlers?: LoadedHandlers,
 ): ActionRuntime {
   return new ActionRuntime({
     actionRegistry: options.actionRegistry,
@@ -28,6 +39,38 @@ function createRuntimeForCommand(
   });
 }
 
+function registerGlobalActions(
+  registries: LoadedRegistries,
+  globalActions?: ActionDefinition[],
+): void {
+  for (const action of globalActions ?? []) {
+    const registeredAction = {
+      definition: action,
+      sourcePath: "handler-module",
+    };
+
+    registries.actionRegistry.register(registeredAction);
+    registries.actions.push(registeredAction);
+  }
+}
+
+async function loadRuntimeContext(
+  options: CommonRuntimeCommandOptions,
+): Promise<{
+  registries: LoadedRegistries;
+  handlers: LoadedHandlers | undefined;
+}> {
+  const registries = await loadRegistries(options);
+  const handlers = options.handlerModule ? await loadHandlerModule(options.handlerModule) : undefined;
+
+  registerGlobalActions(registries, handlers?.globalActions);
+
+  return {
+    registries,
+    handlers,
+  };
+}
+
 function addPackageOptions(command: Command): Command {
   return command
     .option("--skill-package <dir>", "Load a specific skill package directory", collect, [])
@@ -35,6 +78,13 @@ function addPackageOptions(command: Command): Command {
     .addOption(
       new Option("--output <mode>", "Output formatting").choices(["json", "pretty"]).default("pretty"),
     );
+}
+
+function addHandlerModuleOption(command: Command): Command {
+  return command.option(
+    "--handler-module <path>",
+    "Path to an ESM/CJS module exporting primitive handlers and optional global actions",
+  );
 }
 
 function addInputOptions(command: Command): Command {
@@ -57,8 +107,7 @@ function addExecutionOptions(command: Command): Command {
     )
     .option("--timeout-ms <ms>", "Execution timeout in milliseconds", parseNumber)
     .option("--max-depth <n>", "Maximum execution depth", parseNumber)
-    .option("--max-steps <n>", "Maximum total execution steps", parseNumber)
-    .option("--handler-module <path>", "Path to an ESM/CJS module exporting primitive handlers");
+    .option("--max-steps <n>", "Maximum total execution steps", parseNumber);
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -255,32 +304,34 @@ export function createProgram(): Command {
       }),
   );
 
-  addPackageOptions(
-    program
-      .command("list-actions")
-      .option("--skill-id <id>", "Filter actions by skill id")
-      .option("--kind <kind>", "Filter actions by kind")
-      .option("--visibility <visibility>", "Filter actions by visibility")
-      .action(async (options) => {
-        const registries = await loadRegistries(options);
-        const actions = registries.actions
-          .filter((action) => !options.skillId || action.skillId === options.skillId)
-          .filter((action) => !options.kind || action.definition.kind === options.kind)
-          .filter((action) => !options.visibility || action.definition.visibility === options.visibility)
-          .map((action) => ({
-            action_id: action.definition.action_id,
-            version: action.definition.version,
-            kind: action.definition.kind,
-            visibility: action.definition.visibility,
-            side_effect: action.definition.side_effect,
-            idempotent: action.definition.idempotent,
-            skill_id: action.skillId ?? null,
-            source_path: action.sourcePath ?? null,
-          }));
+  addHandlerModuleOption(
+    addPackageOptions(
+      program
+        .command("list-actions")
+        .option("--skill-id <id>", "Filter actions by skill id")
+        .option("--kind <kind>", "Filter actions by kind")
+        .option("--visibility <visibility>", "Filter actions by visibility")
+        .action(async (options) => {
+          const { registries } = await loadRuntimeContext(options);
+          const actions = registries.actions
+            .filter((action) => !options.skillId || action.skillId === options.skillId)
+            .filter((action) => !options.kind || action.definition.kind === options.kind)
+            .filter((action) => !options.visibility || action.definition.visibility === options.visibility)
+            .map((action) => ({
+              action_id: action.definition.action_id,
+              version: action.definition.version,
+              kind: action.definition.kind,
+              visibility: action.definition.visibility,
+              side_effect: action.definition.side_effect,
+              idempotent: action.definition.idempotent,
+              skill_id: action.skillId ?? null,
+              source_path: action.sourcePath ?? null,
+            }));
 
-        printResult({ actions }, options.output);
-        process.exitCode = 0;
-      }),
+          printResult({ actions }, options.output);
+          process.exitCode = 0;
+        }),
+    ),
   );
 
   addPackageOptions(
@@ -293,35 +344,17 @@ export function createProgram(): Command {
       }),
   );
 
-  addPackageOptions(
-    addRequestOptions(
-      program
-        .command("resolve-action")
-        .option("--action-id <id>", "Action identifier to resolve")
-        .option("--version <version>", "Optional action version")
-        .action(async (options) => {
-          const registries = await loadRegistries(options);
-          const runtime = createRuntimeForCommand(registries);
-          const result = await runtime.resolveAction(await getResolveActionRequest(options));
-          printResult(result, options.output);
-          setExitCodeFromResult(result);
-        }),
-    ),
-  );
-
-  addRequestOptions(
-    addInputOptions(
-      addPackageOptions(
+  addHandlerModuleOption(
+    addPackageOptions(
+      addRequestOptions(
         program
-          .command("validate-action-input")
-          .option("--action-id <id>", "Action identifier to validate")
+          .command("resolve-action")
+          .option("--action-id <id>", "Action identifier to resolve")
           .option("--version <version>", "Optional action version")
           .action(async (options) => {
-            const registries = await loadRegistries(options);
-            const runtime = createRuntimeForCommand(registries);
-            const result = await runtime.validateActionInput(
-              await getValidateActionInputRequest(options),
-            );
+            const { registries, handlers } = await loadRuntimeContext(options);
+            const runtime = createRuntimeForCommand(registries, handlers);
+            const result = await runtime.resolveAction(await getResolveActionRequest(options));
             printResult(result, options.output);
             setExitCodeFromResult(result);
           }),
@@ -329,18 +362,20 @@ export function createProgram(): Command {
     ),
   );
 
-  addRequestOptions(
-    addExecutionOptions(
+  addHandlerModuleOption(
+    addRequestOptions(
       addInputOptions(
         addPackageOptions(
           program
-            .command("execute-action")
-            .option("--action-id <id>", "Action identifier to execute")
+            .command("validate-action-input")
+            .option("--action-id <id>", "Action identifier to validate")
+            .option("--version <version>", "Optional action version")
             .action(async (options) => {
-              const registries = await loadRegistries(options);
-              const handlers = await loadHandlerModule(options.handlerModule);
+              const { registries, handlers } = await loadRuntimeContext(options);
               const runtime = createRuntimeForCommand(registries, handlers);
-              const result = await runtime.executeAction(await getExecuteActionRequest(options));
+              const result = await runtime.validateActionInput(
+                await getValidateActionInputRequest(options),
+              );
               printResult(result, options.output);
               setExitCodeFromResult(result);
             }),
@@ -349,21 +384,43 @@ export function createProgram(): Command {
     ),
   );
 
-  addRequestOptions(
-    addExecutionOptions(
-      addInputOptions(
-        addPackageOptions(
-          program
-            .command("execute-skill")
-            .option("--skill-id <id>", "Skill identifier to execute")
-            .action(async (options) => {
-              const registries = await loadRegistries(options);
-              const handlers = await loadHandlerModule(options.handlerModule);
-              const runtime = createRuntimeForCommand(registries, handlers);
-              const result = await runtime.executeSkill(await getExecuteSkillRequest(options));
-              printResult(result, options.output);
-              setExitCodeFromResult(result);
-            }),
+  addHandlerModuleOption(
+    addRequestOptions(
+      addExecutionOptions(
+        addInputOptions(
+          addPackageOptions(
+            program
+              .command("execute-action")
+              .option("--action-id <id>", "Action identifier to execute")
+              .action(async (options) => {
+                const { registries, handlers } = await loadRuntimeContext(options);
+                const runtime = createRuntimeForCommand(registries, handlers);
+                const result = await runtime.executeAction(await getExecuteActionRequest(options));
+                printResult(result, options.output);
+                setExitCodeFromResult(result);
+              }),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  addHandlerModuleOption(
+    addRequestOptions(
+      addExecutionOptions(
+        addInputOptions(
+          addPackageOptions(
+            program
+              .command("execute-skill")
+              .option("--skill-id <id>", "Skill identifier to execute")
+              .action(async (options) => {
+                const { registries, handlers } = await loadRuntimeContext(options);
+                const runtime = createRuntimeForCommand(registries, handlers);
+                const result = await runtime.executeSkill(await getExecuteSkillRequest(options));
+                printResult(result, options.output);
+                setExitCodeFromResult(result);
+              }),
+          ),
         ),
       ),
     ),
