@@ -1,0 +1,136 @@
+name: Publish npm Packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "runtime/**"
+      - "runtime-cli/**"
+      - ".github/workflows/publish-npm.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_dir: runtime
+          - package_dir: runtime-cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup npm and pnpm
+        run: |
+          npm install -g npm@11.5.1
+          corepack enable
+
+      - name: Compute publish metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PACKAGE_JSON="${{ matrix.package_dir }}/package.json"
+          PACKAGE_NAME="$(node -p "require('./${PACKAGE_JSON}').name")"
+          PACKAGE_VERSION="$(node -p "require('./${PACKAGE_JSON}').version")"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            CHANGED=true
+          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            CHANGED=true
+          elif git diff --quiet "${{ github.event.before }}" "${{ github.sha }}" -- "${{ matrix.package_dir }}"; then
+            CHANGED=false
+          else
+            CHANGED=true
+          fi
+
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            VERSION_EXISTS=true
+          else
+            VERSION_EXISTS=false
+          fi
+
+          SHOULD_PUBLISH=false
+          if [[ "${CHANGED}" == "true" && "${VERSION_EXISTS}" == "false" ]]; then
+            SHOULD_PUBLISH=true
+          fi
+
+          echo "package_name=${PACKAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "package_version=${PACKAGE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "changed=${CHANGED}" >> "${GITHUB_OUTPUT}"
+          echo "version_exists=${VERSION_EXISTS}" >> "${GITHUB_OUTPUT}"
+          echo "should_publish=${SHOULD_PUBLISH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarize decision
+        shell: bash
+        run: |
+          {
+            echo "### ${{ steps.meta.outputs.package_name }}"
+            echo
+            echo "- package dir: \`${{ matrix.package_dir }}\`"
+            echo "- version: \`${{ steps.meta.outputs.package_version }}\`"
+            echo "- changed in this run: \`${{ steps.meta.outputs.changed }}\`"
+            echo "- version already on npm: \`${{ steps.meta.outputs.version_exists }}\`"
+            echo "- will publish: \`${{ steps.meta.outputs.should_publish }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Build runtime
+        if: steps.meta.outputs.should_publish == 'true' && matrix.package_dir == 'runtime'
+        working-directory: runtime
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build
+
+      - name: Prepare local runtime artifact for runtime-cli
+        if: steps.meta.outputs.should_publish == 'true' && matrix.package_dir == 'runtime-cli'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd runtime >/dev/null
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build
+          corepack pnpm pack --pack-destination ./.artifacts
+          popd >/dev/null
+
+      - name: Build runtime-cli
+        if: steps.meta.outputs.should_publish == 'true' && matrix.package_dir == 'runtime-cli'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RUNTIME_TARBALL="$(find runtime/.artifacts -maxdepth 1 -name '*.tgz' -print -quit)"
+
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const pkgPath = "runtime-cli/package.json";
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+          pkg.dependencies["@rien7/skill-action-runtime"] = `file:../${process.env.RUNTIME_TARBALL}`;
+          fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          pushd runtime-cli >/dev/null
+          corepack pnpm install --no-frozen-lockfile
+          corepack pnpm build
+          popd >/dev/null
+
+          git checkout -- runtime-cli/package.json
+
+      - name: Publish to npm
+        if: steps.meta.outputs.should_publish == 'true'
+        working-directory: ${{ matrix.package_dir }}
+        run: npm publish --provenance --access public
