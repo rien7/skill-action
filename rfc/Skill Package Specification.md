@@ -11,11 +11,11 @@ A Skill Package is the primary unit of:
 
 - Capability definition
 - Action grouping
-- Workflow exposure
+- Workflow entry
 
 It combines:
 
-- Human-readable context (`SKILL.md`)
+- Agent-readable capability overview (`SKILL.md`)
 - Structured metadata (`skill.json`)
 - Executable actions (`actions/`)
 
@@ -23,16 +23,24 @@ It combines:
 
 The Skill Package MUST:
 
-1. Be self-contained
+1. Be self-contained for package-local actions
 2. Be language-independent
-3. Support explicit action exposure
-4. Separate documentation from execution
+3. Support an explicit workflow entry point
+4. Separate agent guidance from executable definitions
 5. Be compatible with existing skill ecosystems
 
 The Skill Package MUST NOT:
 
 - Require runtime-specific implementation details
 - Implicitly infer actions from scripts or docs
+- Manage external runtime dependencies in package metadata
+
+In this specification, "self-contained" means the package fully declares:
+
+- its package-local actions
+- its package entry action
+
+It does not require the package to declare external primitive bindings.
 
 ## 3. Directory Structure
 
@@ -43,7 +51,6 @@ skill-package/
   SKILL.md
   skill.json
   actions/
-    actions.json
     <action_name>/
       action.json
       (implementation files)
@@ -55,17 +62,24 @@ skill-package/
 
 Purpose:
 
-Provides human-readable context for:
+Provides a high-precision overview intended to be read by an agent before selecting or invoking actions.
+Its primary goal is retrieval accuracy and execution guidance, not prose readability for humans.
+
+It SHOULD cover:
 
 - Capability description
-- Usage guidance
-- Best practices
+- Invocation guidance
+- Constraints and decision boundaries
+- Usage patterns that help the agent choose the right action path
 
 Requirements:
 
 - MUST be present
 - MUST NOT be parsed as executable logic
-- MAY include examples and references
+- SHOULD prioritize precise, low-ambiguity wording over narrative prose
+- SHOULD align with `skill.json`, declared actions, and actual runtime behavior
+- SHOULD avoid restating action contracts that already live in structured manifests unless needed for agent routing
+- MAY include examples and references when they improve execution accuracy
 
 ### 4.2 skill.json
 
@@ -78,60 +92,39 @@ Structure:
 ```json
 {
   "skill_id": "string",
-  "version": "string",
   "title": "string",
   "description": "string",
-  "entry_action": "action_id",
-  "exposed_actions": [
-    "action_id"
-  ]
+  "entry_action": "action_id"
 }
 ```
+
+Field optionality conventions:
+
+- Unless explicitly marked optional, every field shown in `skill.json` MUST be present
+- Optional fields MAY be omitted; if omitted, the behavior defined for that field applies
+- `null` is not implied by optionality; fields are non-null unless explicitly declared nullable
+
+Identifier rules:
+
+- `skill_id` MUST be a non-empty, case-sensitive string
+- `skill_id` equality MUST use exact string equality; tooling and runtimes MUST NOT trim, case-fold, or Unicode-normalize identifiers before comparison
 
 Field definitions:
 
 | Field | Description |
 | --- | --- |
 | `skill_id` | Unique identifier |
-| `version` | Skill version |
-| `title` | Human-readable name |
-| `description` | Short description |
+| `title` | Stable display name for catalogs and user-facing metadata |
+| `description` | Stable summary for catalogs and user-facing metadata |
 | `entry_action` | Default execution entry |
-| `exposed_actions` | Actions callable externally |
 
 Rules:
 
 - `entry_action` MUST exist in the package
-- `exposed_actions` MUST reference valid actions
-- `exposed_actions` SHOULD be minimal
+- `title` and `description` SHOULD remain stable metadata and MUST NOT be treated as the primary agent-routing surface; `SKILL.md` is the primary agent-facing guidance document
+- `entry_action` and package-local action references MUST compare `action_id` values using the exact identifier rules defined in the Action Specification
 
-### 4.3 actions/actions.json
-
-Purpose:
-
-Declares all actions included in the skill package.
-
-Structure:
-
-```json
-{
-  "actions": [
-    {
-      "action_id": "string",
-      "path": "relative/path",
-      "visibility": "public | skill | internal"
-    }
-  ]
-}
-```
-
-Rules:
-
-- Each `action_id` MUST be unique
-- Each `path` MUST resolve to a valid action directory
-- `visibility` MUST align with Action Specification
-
-### 4.4 Action Directory
+### 4.3 Action Directory
 
 Each action MUST be defined in its own directory:
 
@@ -142,10 +135,19 @@ actions/
     (implementation files)
 ```
 
-Implementation files are optional.
-For primitive actions, the executable implementation MAY live outside the package and be supplied by a runtime-global registration such as a CLI, MCP, path-based adapter, or another explicit executor binding.
+Action discovery rules:
 
-### 4.5 action.json
+- A package-local action exists only when a directory under `actions/` contains `action.json`
+- `actions/` MAY contain helper directories that are not actions
+- Validators and runtimes MUST ignore subdirectories under `actions/` that do not contain `action.json`
+- Tooling and runtimes MUST NOT infer actions from filenames, scripts, or `SKILL.md`
+
+Implementation files are optional.
+Implementation files are non-normative in the core package format; their presence alone MUST NOT cause a validator or runtime to infer an executable binding.
+For primitive actions, the executable implementation MAY live inside or outside the package.
+Primitive binding resolution is runtime behavior and is not described by package metadata.
+
+### 4.4 action.json
 
 Purpose:
 
@@ -156,7 +158,6 @@ Example:
 ```json
 {
   "action_id": "workflow.review_component",
-  "version": "1.0.0",
   "kind": "composite",
   "title": "Review Component",
   "description": "Analyze component files and produce feedback",
@@ -176,8 +177,6 @@ Example:
       "summary": { "type": "string" }
     }
   },
-  "visibility": "public",
-  "side_effect": "none",
   "idempotent": true
 }
 ```
@@ -188,23 +187,18 @@ Example:
 
 Actions within the same package MUST reference each other by `action_id`.
 
-Composite steps MAY also reference runtime-global actions using a fully-qualified global identifier.
+Package-to-package action calls are not part of this core specification.
+Composite steps inside a skill package MUST use package-local `action_id` values only.
 
 ### 5.2 Resolution Rules
 
 Runtime MUST:
 
-1. Resolve unqualified `action_id` via the current package first
-2. Load corresponding `action.json` for package-local actions
+1. Resolve unqualified `action_id` via the current package
+2. Load the corresponding `action.json` for package-local actions
 3. Validate consistency for package-local actions
-4. Resolve fully-qualified global references via the runtime's global action registry
 
-For unqualified identifiers used inside a skill package:
-
-- package-local actions take precedence
-- runtime-global registrations are fallback resolution only
-
-If a selected action cannot be resolved locally or globally, the runtime MUST report an error deterministically.
+If a selected package-local action cannot be resolved, the runtime MUST report an error deterministically.
 
 ## 6. Entry Action
 
@@ -215,24 +209,14 @@ The `entry_action` defines:
 
 Requirements:
 
-- MUST be a valid action
-- SHOULD be a composite action
+- MUST be a valid package-local action
 - SHOULD represent the main use case
-- MUST resolve within the package itself, not via a global action registry
 
-## 7. Visibility Model
+## 7. Top-Level Addressing
 
-Visibility defines callable scope.
+Top-level callers address a package action through the Action Runtime Protocol using `skill_id` and `action_id`.
 
-| Value | Meaning |
-| --- | --- |
-| `public` | Callable externally |
-| `skill` | Callable only via skill |
-| `internal` | Callable only within actions |
-
-Enforcement:
-
-Runtime MUST enforce visibility constraints.
+`execute_skill` always invokes `entry_action`.
 
 ## 8. Packaging Rules
 
@@ -240,79 +224,67 @@ Runtime MUST enforce visibility constraints.
 
 A skill package MUST include:
 
-- All required action definitions
-- All referenced actions
+- All required local action definitions
+- All referenced package-local actions
 
 ### 8.2 No Implicit Actions
 
 Actions MUST NOT be inferred from:
 
-- File names
+- File names without `action.json`
 - Scripts
 - Documentation
 
-All actions MUST be declared in `actions.json`.
+### 8.3 Primitive Bindings
 
-### 8.3 External Primitive Bindings
+Primitive action implementations MAY depend on runtime-provided bindings that are not packaged in the skill itself.
 
-Primitive action definitions MAY depend on executors that are not packaged in the skill itself.
-
-Examples:
-
-- a CLI adapter registered by path
-- an MCP adapter registered in the runtime
-- a host-provided primitive handler module
-
-The package defines the contract for such actions, but not the transport-specific implementation binding.
-If the runtime chooses one of these actions during execution and no binding is registered, the runtime MUST report an execution failure.
+The package defines the action contract, but not the binding configuration.
+Skill package metadata MUST NOT declare or manage external primitive bindings.
+If the runtime reaches a primitive action and no valid environment-provided binding exists, execution MUST fail.
 
 ### 8.4 Multi-Package Resolution
 
 When multiple skill packages are loaded:
 
-- unqualified action references inside a skill MUST resolve to actions declared in that same skill package before any global fallback is attempted
-- runtime-global CLI/MCP/path registrations MAY satisfy unresolved external references
-- top-level unqualified action lookup MUST be deterministic; ambiguous matches MUST produce an error rather than depending on load order
+- `skill_id` lookup MUST be deterministic
+- duplicate `skill_id` values MUST be rejected or reported as ambiguous by the runtime
+- package-local action references inside a skill MUST resolve only within that same skill package
 
-## 9. Versioning
-
-### 9.1 Skill Version
-
-```json
-{
-  "version": "1.0.0"
-}
-```
-
-### 9.2 Action Version
-
-Each action MUST also define its own version.
-
-## 10. Validation Requirements
+## 9. Validation Requirements
 
 A valid skill package MUST satisfy:
 
 1. `skill.json` exists and is valid
-2. `actions/actions.json` exists
-3. All package-local actions resolve correctly
-4. All unqualified package-local references exist
-5. All schemas are valid JSON Schema
+2. `actions/` exists
+3. Every discovered package-local action directory contains `action.json`
+4. All package-local action identifiers are unique within the package
+5. All package-local references exist
+6. All schemas are valid JSON Schema Draft 2020-12
+7. Every composite action defines an explicit `returns` object
+8. Every composite action defines an `output_schema` for a JSON object
+9. Every composite action defines at least one step
 
 Validation boundary:
 
-- package validation MUST verify package-local references such as `entry_action`, `exposed_actions`, and unqualified internal step references
-- package validation MAY record fully-qualified global action references as external dependencies
-- package validation MUST NOT silently infer missing local actions from implementation files or documentation
+- package validation MUST verify package-local references such as `entry_action` and unqualified internal step references
+- package validation MUST verify that every composite action defines `returns`
+- package validation MUST verify that every composite action `output_schema` describes a JSON object
+- package validation MUST verify that every composite action `steps` array contains at least one step
+- package validation MUST validate `input_schema` and `output_schema` against JSON Schema Draft 2020-12
+- package validation MUST ignore subdirectories under `actions/` that do not contain `action.json`
+- package validation MUST NOT silently infer missing local actions from implementation files or `SKILL.md`
+- package validation MUST compare `skill_id` and `action_id` values using the exact identifier rules defined by this specification and the Action Specification
 
-## 11. Execution Flow
+## 10. Execution Flow
 
 When executing a skill:
 
 1. Load `skill.json`
 2. Resolve `entry_action`
-3. Execute via runtime protocol
+3. Execute via the Action Runtime Protocol
 
-## 12. Compatibility
+## 11. Compatibility
 
 The Skill Package Specification is designed to:
 
@@ -321,20 +293,22 @@ The Skill Package Specification is designed to:
 
 Non-action skills MAY omit `actions/`, but such packages are outside the validity rules of this action-based specification.
 
-## 13. Non-Goals
+## 12. Non-Goals
 
 This specification does NOT define:
 
-- Runtime behavior (see Action Runtime Protocol)
-- Execution semantics (see Action Specification)
+- Runtime behavior beyond package loading and package-local resolution
+- Execution semantics beyond what is defined in the Action Specification
 - Agent behavior
+- External dependency management
 
-## 14. Summary
+## 13. Summary
 
 A Skill Package defines:
 
-- What a capability is (`SKILL.md`)
-- How it is structured (`skill.json`)
-- How it executes (`actions/`)
+- How an agent should understand and route the capability (`SKILL.md`)
+- How it is identified (`skill.json`)
+- Which package-local actions exist (`actions/`)
+- Which action is the workflow entry (`entry_action`)
 
-It serves as the bridge between human-readable skills and deterministic execution.
+It serves as the bridge between agent-readable capability guidance and deterministic execution.

@@ -6,17 +6,17 @@ This document defines the Action Runtime Protocol, a language-agnostic interface
 
 The runtime is responsible for:
 
-- Resolving actions and skills
+- Resolving skills and actions
 - Validating inputs
 - Executing actions deterministically
-- Producing structured outputs and traces
+- Returning structured execution results
 
 ## 2. Design Principles
 
 The runtime MUST:
 
 - Be deterministic
-- Be stateless per request (unless explicitly extended)
+- Be stateless per request unless explicitly extended
 - Use structured request/response formats
 - Avoid agent-level reasoning
 
@@ -32,8 +32,8 @@ The protocol is transport-agnostic and MAY be implemented over:
 
 - Function calls
 - HTTP
-- RPC / gRPC
-- CLI (stdin/stdout)
+- RPC or gRPC
+- CLI using stdin and stdout
 
 All payloads MUST be JSON-compatible.
 
@@ -73,14 +73,20 @@ Protocol-level failure MUST follow:
 
 Protocol-level failure means the request did not successfully enter execution. Examples include:
 
-- action or skill resolution failure
+- skill or action resolution failure
 - request validation failure
 - schema compilation failure
-- policy rejection before execution starts
 
 For `execute_action` and `execute_skill`, once execution has started, the runtime MUST return `ok: true` with an `Execution Result` in `data`, even if execution later fails.
-In that case, execution failure is represented by `data.status: "failed"` and execution details such as trace and timestamps remain available.
+In that case, execution failure is represented by `data.status: "failed"`.
 The outer `error` field is reserved for protocol-level failure.
+
+### 4.1 Field Optionality Conventions
+
+- Unless explicitly marked optional, every field shown in a request or response object MUST be present
+- Optional fields MAY be omitted; if omitted, the runtime MUST apply the behavior defined for that field
+- `null` is distinct from omission; a field is nullable only when the specification explicitly says it MAY be `null`
+- In the common response envelope, exactly one of `data` or `error` MUST be non-null
 
 ## 5. Core Interfaces
 
@@ -92,10 +98,29 @@ Request:
 
 ```json
 {
-  "action_id": "string",
-  "version": "optional"
+  "skill_id": "string",
+  "action_id": "string"
 }
 ```
+
+Field semantics:
+
+- `skill_id` MUST be present
+- `action_id` MUST be present
+
+Response data:
+
+```json
+{
+  "skill_id": "string",
+  "action_id": "string",
+  "kind": "primitive | composite"
+}
+```
+
+Response field semantics:
+
+- `skill_id`, `action_id`, and `kind` MUST be present
 
 ### 5.2 Execute Action
 
@@ -105,22 +130,19 @@ Request:
 
 ```json
 {
+  "skill_id": "string",
   "action_id": "string",
   "input": {},
   "options": {}
 }
 ```
 
-Response data:
+Field semantics:
 
-```json
-{
-  "execution_id": "string",
-  "status": "succeeded | failed",
-  "output": {},
-  "trace": {}
-}
-```
+- `skill_id` MUST be present
+- `action_id` MUST be present
+- `input` MAY be omitted; if omitted, it defaults to an empty object
+- `options` MAY be omitted; if omitted, runtime defaults apply
 
 Response envelope:
 
@@ -131,7 +153,6 @@ Response envelope:
     "execution_id": "string",
     "status": "succeeded | failed",
     "output": {},
-    "trace": {},
     "started_at": "RFC3339",
     "finished_at": "RFC3339"
   },
@@ -159,6 +180,12 @@ Request:
 }
 ```
 
+Field semantics:
+
+- `skill_id` MUST be present
+- `input` MAY be omitted; if omitted, it defaults to an empty object
+- `options` MAY be omitted; if omitted, runtime defaults apply
+
 Behavior:
 
 - Resolve skill
@@ -178,33 +205,61 @@ Request:
 
 ```json
 {
+  "skill_id": "string",
   "action_id": "string",
   "input": {}
 }
 ```
 
+Field semantics:
+
+- `skill_id` MUST be present
+- `action_id` MUST be present
+- `input` MUST be present
+
+Response data:
+
+```json
+{
+  "valid": true,
+  "skill_id": "string",
+  "action_id": "string"
+}
+```
+
+Response field semantics:
+
+- `valid` MUST be present and MUST equal `true` on success
+- `skill_id` and `action_id` MUST identify the action definition used for validation
+- If validation fails, the runtime MUST return a protocol-level failure rather than `valid: false`
+
 ## 6. Resolution Model
 
-The runtime MAY load actions from more than one source, including:
-
-- actions declared inside loaded skill packages
-- runtime-global registrations such as CLI, MCP, or path-backed adapters
+The runtime MUST load action definitions from skill packages.
 
 Resolution rules:
 
-- For nested action calls inside a skill, unqualified action identifiers MUST resolve against the current skill package first
-- If no package-local match exists, the runtime MAY resolve against runtime-global registrations
-- A fully-qualified global reference bypasses package-local lookup and targets the named global registration space directly
-- For top-level `resolve_action` and `execute_action`, an unqualified action identifier MUST resolve to exactly one candidate after applying runtime resolution rules
-- If multiple candidates remain for the same top-level unqualified identifier, the runtime MUST return a protocol-level failure
-- If no candidate is found, the runtime MUST return `ACTION_NOT_FOUND`
+- Loaded skill packages MUST be uniquely identifiable by exact `skill_id`
+- If the runtime cannot uniquely identify a loaded skill package for a requested `skill_id`, it MUST return `SKILL_RESOLUTION_AMBIGUOUS`
+- For top-level requests, the runtime MUST resolve `skill_id` first and MUST then resolve `action_id` only within that package
+- For nested action calls inside a skill, unqualified action identifiers MUST resolve only within the current skill package
+- If the addressed package does not contain the requested `action_id`, the runtime MUST return `ACTION_NOT_FOUND` before execution starts for top-level requests, or fail execution deterministically for nested calls
+- Package-scoped resolved action identity is the tuple `(skill_id, action_id)`
+- Skill identifier equality MUST use exact string equality; runtimes MUST NOT trim, case-fold, or Unicode-normalize `skill_id` values before comparison
+- Action identifier equality MUST use exact string equality; runtimes MUST NOT trim, case-fold, or Unicode-normalize `action_id` values before comparison
+
+Primitive binding rules:
+
+- Primitive binding configuration MUST come from environment variables supplied to the runtime
+- The exact environment variable names and value format are runtime-defined and outside this core specification
+- Primitive binding lookup MUST be keyed by the resolved package action identity
+- If a primitive action is reached and no valid binding is available from the runtime environment, execution MUST fail with `PRIMITIVE_BINDING_NOT_FOUND`
+- Cross-runtime portability of primitive binding configuration is not guaranteed by this core specification
 
 ## 7. Execution Options
 
 ```json
 {
-  "dry_run": false,
-  "trace_level": "none | basic | full",
   "timeout_ms": 30000,
   "max_depth": 20,
   "max_steps": 200
@@ -213,11 +268,16 @@ Resolution rules:
 
 Field semantics:
 
-- `dry_run: true` means the runtime validates and traces execution without invoking side-effecting primitive executors
-- `trace_level: "none"` means `trace.steps` MUST be empty
-- `trace_level: "basic"` means per-step execution records MUST be present, and runtimes MAY redact or summarize large `input`, `output`, or `error` payloads
-- `trace_level: "full"` means the runtime SHOULD include the fullest available per-step `input`, `output`, and `error` payloads
-- `timeout_ms` applies only after execution has started, meaning after root resolution, root visibility checks, and root input validation succeed
+- Each execution option MAY be omitted; if omitted, the runtime MUST apply the default shown above
+- `timeout_ms` applies only after execution has started, meaning after root resolution and root input validation succeed
+- `max_depth` counts action invocation depth
+- The root action invocation MUST have depth `0`
+- Each nested action invocation MUST increase depth by exactly `1`
+- The runtime MUST reject the next nested invocation before execution when it would make depth exceed `max_depth`
+- `max_steps` counts reached composite steps, including failed and skipped steps
+- The runtime MUST increment the step count when a composite step becomes reached, after condition evaluation determines that the step is either skipped or will execute
+- The root action invocation does not itself count as a step
+- The runtime MUST fail before executing the next reached step when doing so would make the total reached step count exceed `max_steps`
 - If `timeout_ms` is exceeded after execution has started, the runtime MUST return `ok: true` with `data.status: "failed"`
 
 ## 8. Execution Result
@@ -230,7 +290,6 @@ It represents both successful and failed executions after the runtime has entere
   "execution_id": "string",
   "status": "succeeded | failed",
   "output": {},
-  "trace": {},
   "started_at": "RFC3339",
   "finished_at": "RFC3339"
 }
@@ -238,29 +297,17 @@ It represents both successful and failed executions after the runtime has entere
 
 Field semantics:
 
+- `execution_id`, `status`, `started_at`, and `finished_at` MUST be present
 - `status: "succeeded"` means execution completed successfully
 - `status: "failed"` means execution started but failed during execution
-- `output` MAY be partial, null, or omitted by transport-specific adapters when `status` is `failed`, but the result object itself MUST still be returned
-- `trace` SHOULD contain the execution history available at the point of failure
+- `output` MUST be present when `status` is `succeeded`
+- `output` MAY be partial, `null`, or omitted when `status` is `failed`, but the result object itself MUST still be returned
 
-## 9. Trace Format
+## 9. Trace Extension
 
-```json
-{
-  "steps": [
-    {
-      "step_id": "string",
-      "action_id": "string",
-      "status": "succeeded | failed | skipped",
-      "input": {},
-      "output": {},
-      "error": null,
-      "started_at": "",
-      "finished_at": ""
-    }
-  ]
-}
-```
+Trace payloads and trace-related execution options are not part of this core specification.
+
+Runtimes MAY provide tracing as an extension, but a conforming core implementation MUST NOT require trace support in order to execute actions correctly.
 
 ## 10. Error Model
 
@@ -269,26 +316,32 @@ Field semantics:
 These are protocol-level errors.
 
 - `ACTION_NOT_FOUND`
-- `ACTION_RESOLUTION_AMBIGUOUS`
 - `SKILL_NOT_FOUND`
-- `VERSION_NOT_FOUND`
+- `SKILL_RESOLUTION_AMBIGUOUS`
 
 ### 10.2 Validation Errors
 
 These are protocol-level errors.
 
 - `INVALID_INPUT`
+- `SCHEMA_COMPILATION_FAILED`
 - `SCHEMA_VALIDATION_FAILED`
+
+Semantics:
+
+- `SCHEMA_COMPILATION_FAILED` means the runtime could not compile or prepare an action `input_schema` or `output_schema`
+- `SCHEMA_VALIDATION_FAILED` means a compiled root action input schema rejected the provided request input before execution started
+- Nested input or output schema validation failures are execution-result failures and MUST NOT be reported as protocol-level `SCHEMA_VALIDATION_FAILED`
 
 ### 10.3 Execution Errors
 
 These are execution-result errors.
 For `execute_action` and `execute_skill`, they MUST be represented by `ok: true`, `data.status: "failed"`, and execution details in `data`.
-They SHOULD also be reflected in trace entries and MAY be summarized in execution payload fields defined by future revisions.
 
 - `INVALID_CONDITION`
 - `STEP_EXECUTION_FAILED`
 - `ACTION_EXECUTION_FAILED`
+- `PRIMITIVE_BINDING_NOT_FOUND`
 - `TIMEOUT_EXCEEDED`
 - `MAX_DEPTH_EXCEEDED`
 - `MAX_STEPS_EXCEEDED`
@@ -297,49 +350,42 @@ Examples include:
 
 - a reachable step contains an unresolved binding
 - a reachable nested action cannot be resolved after execution has started
-- a primitive action has no registered CLI/MCP/path/handler executor
+- a primitive action has no valid environment-provided binding
 - a composite `returns` mapping cannot be resolved
 - a step output fails schema validation
 
-### 10.4 Policy Errors
-
-Policy errors are protocol-level errors when they prevent execution from starting.
-
-- `VISIBILITY_VIOLATION`
-- `ACTION_NOT_CALLABLE`
-
-### 10.5 Failure Boundary
+### 10.4 Failure Boundary
 
 Protocol-level failure applies only before execution starts. This includes:
 
-- root action or skill resolution
-- top-level ambiguity detection
-- root visibility checks
+- root skill or action resolution
 - root input validation
 - schema compilation failure
-- package or manifest loading failure that prevents entry into execution
+- package loading failure that prevents entry into execution
 
 Execution-result failure applies after execution starts. This includes:
 
 - condition parsing or evaluation failure
 - reachable binding resolution failure
 - nested action resolution failure
-- nested visibility violation
-- missing primitive executor binding
+- missing primitive binding
 - output validation failure
-- timeout and step/depth limit failures
+- timeout and step or depth limit failures
 
 ## 11. Execution Semantics
 
 ### 11.1 Deterministic Execution
 
 - Steps MUST execute in order
-- No implicit reordering allowed
+- No implicit reordering is allowed
 
-### 11.2 Condition Evaluation
+### 11.2 Input And Output Validation
 
-- MUST evaluate before execution
-- MUST NOT have side effects
+- Before any action invocation, the runtime MUST validate the effective input against the callee `input_schema`
+- For root `execute_action` and `execute_skill` requests, input validation failure is a protocol-level failure because execution has not started yet
+- For nested action invocations, input validation failure MUST be reported as an execution-result failure because execution has already started
+- After any successful action invocation, the runtime MUST validate the produced output against the callee `output_schema` before storing or returning it as successful output
+- Nested output validation failure MUST be reported as an execution-result failure
 
 ### 11.3 Failure Handling
 
