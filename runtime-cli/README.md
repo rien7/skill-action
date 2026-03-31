@@ -72,9 +72,6 @@ skill-action-runtime validate-skill-package --skills-dir ./skills
 The validation command checks package-level consistency such as:
 
 - `entry_action` resolves
-- `exposed_actions` resolve
-- `actions/actions.json` matches `action.json`
-- manifest visibility matches action visibility
 - fully-qualified global action references are reported as external dependencies
 
 ## Runtime-Cli Extensions

@@ -274,11 +274,9 @@ export function createProgram(): Command {
         const result = {
           skills: registries.skills.map((skill) => ({
             skill_id: skill.definition.skill_id,
-            version: skill.definition.version,
             title: skill.definition.title,
             description: skill.definition.description,
             entry_action: skill.definition.entry_action,
-            exposed_actions: skill.definition.exposed_actions,
             source_path: skill.sourcePath ?? null,
           })),
         };
@@ -293,19 +291,14 @@ export function createProgram(): Command {
         .command("list-actions")
         .option("--skill-id <id>", "Filter actions by skill id")
         .option("--kind <kind>", "Filter actions by kind")
-        .option("--visibility <visibility>", "Filter actions by visibility")
         .action(async (options) => {
           const { registries } = await loadRuntimeContext(options);
           const actions = registries.actions
             .filter((action) => !options.skillId || action.skillId === options.skillId)
             .filter((action) => !options.kind || action.definition.kind === options.kind)
-            .filter((action) => !options.visibility || action.definition.visibility === options.visibility)
             .map((action) => ({
               action_id: action.definition.action_id,
-              version: action.definition.version,
               kind: action.definition.kind,
-              visibility: action.definition.visibility,
-              side_effect: action.definition.side_effect,
               idempotent: action.definition.idempotent,
               skill_id: action.skillId ?? null,
               source_path: action.sourcePath ?? null,

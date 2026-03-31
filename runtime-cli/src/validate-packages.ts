@@ -3,11 +3,9 @@ import path from "node:path";
 
 import {
   actionDefinitionSchema,
-  actionManifestSchema,
   isRuntimeGlobalActionReference,
   skillDefinitionSchema,
   type ActionDefinition,
-  type ActionManifest,
   type SkillDefinition,
 } from "@rien7/skill-action-runtime";
 
@@ -89,34 +87,8 @@ async function loadSkillDefinition(
   }
 }
 
-async function loadManifest(
-  packageDir: string,
-  issues: ValidationIssue[],
-): Promise<{ manifest?: ActionManifest; filePath: string }> {
-  const filePath = path.join(packageDir, "actions", "actions.json");
-  if (!(await exists(filePath))) {
-    return { filePath };
-  }
-
-  try {
-    return {
-      manifest: actionManifestSchema.parse(await readJson(filePath)),
-      filePath,
-    };
-  } catch (error) {
-    pushIssue(issues, {
-      code: "INVALID_ACTION_MANIFEST",
-      message: error instanceof Error ? error.message : "Failed to parse actions/actions.json",
-      package_dir: packageDir,
-      file: filePath,
-    });
-    return { filePath };
-  }
-}
-
 async function loadActionDefinitions(
   packageDir: string,
-  manifest: ActionManifest | undefined,
   issues: ValidationIssue[],
 ): Promise<Map<string, ActionDefinition>> {
   const definitions = new Map<string, ActionDefinition>();
@@ -133,21 +105,6 @@ async function loadActionDefinitions(
 
   const entries = await readdir(actionsDir, { withFileTypes: true });
   const actionDirs = entries.filter((entry) => entry.isDirectory());
-  const manifestEntries = new Map((manifest?.actions ?? []).map((entry) => [entry.path, entry]));
-  const seenManifestIds = new Set<string>();
-
-  for (const reference of manifest?.actions ?? []) {
-    if (seenManifestIds.has(reference.action_id)) {
-      pushIssue(issues, {
-        code: "DUPLICATE_ACTION_ID",
-        message: `Duplicate action_id "${reference.action_id}" in actions/actions.json.`,
-        package_dir: packageDir,
-        file: path.join(packageDir, "actions", "actions.json"),
-        action_id: reference.action_id,
-      });
-    }
-    seenManifestIds.add(reference.action_id);
-  }
 
   for (const entry of actionDirs) {
     const filePath = path.join(actionsDir, entry.name, "action.json");
@@ -167,27 +124,6 @@ async function loadActionDefinitions(
           action_id: definition.action_id,
         });
         continue;
-      }
-
-      const manifestEntry = manifestEntries.get(entry.name);
-      if (manifestEntry && definition.action_id !== manifestEntry.action_id) {
-        pushIssue(issues, {
-          code: "ACTION_ID_MISMATCH",
-          message: `Manifest action_id "${manifestEntry.action_id}" does not match action.json action_id "${definition.action_id}".`,
-          package_dir: packageDir,
-          file: filePath,
-          action_id: manifestEntry.action_id,
-        });
-      }
-
-      if (manifestEntry && definition.visibility !== manifestEntry.visibility) {
-        pushIssue(issues, {
-          code: "VISIBILITY_MISMATCH",
-          message: `Manifest visibility "${manifestEntry.visibility}" does not match action.json visibility "${definition.visibility}".`,
-          package_dir: packageDir,
-          file: filePath,
-          action_id: definition.action_id,
-        });
       }
 
       definitions.set(definition.action_id, definition);
@@ -241,8 +177,7 @@ function validateActionReferences(
 async function validatePackage(packageDir: string): Promise<PackageValidationResult> {
   const issues: ValidationIssue[] = [];
   const skill = await loadSkillDefinition(packageDir, issues);
-  const manifest = await loadManifest(packageDir, issues);
-  const actions = await loadActionDefinitions(packageDir, manifest.manifest, issues);
+  const actions = await loadActionDefinitions(packageDir, issues);
   const externalDependencies = validateActionReferences(packageDir, actions, issues);
 
   if (skill.definition) {
@@ -262,19 +197,6 @@ async function validatePackage(packageDir: string): Promise<PackageValidationRes
         file: skill.filePath,
         skill_id: skill.definition.skill_id,
       });
-    }
-
-    for (const actionId of skill.definition.exposed_actions) {
-      if (isRuntimeGlobalActionReference(actionId) || !actions.has(actionId)) {
-        pushIssue(issues, {
-          code: "EXPOSED_ACTION_NOT_FOUND",
-          message: `exposed_actions entry "${actionId}" does not resolve to a declared action.`,
-          package_dir: packageDir,
-          file: skill.filePath,
-          skill_id: skill.definition.skill_id,
-          action_id: actionId,
-        });
-      }
     }
   }
 

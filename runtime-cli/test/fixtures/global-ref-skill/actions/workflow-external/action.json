@@ -1,6 +1,5 @@
 {
   "action_id": "workflow.external",
-  "version": "1.0.0",
   "kind": "composite",
   "title": "Workflow External",
   "description": "Use a fully-qualified global action reference",
@@ -24,8 +23,6 @@
     "required": ["value"],
     "additionalProperties": false
   },
-  "visibility": "public",
-  "side_effect": "none",
   "idempotent": true,
   "steps": [
     {

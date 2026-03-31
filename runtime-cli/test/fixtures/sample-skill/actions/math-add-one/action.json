@@ -1,6 +1,5 @@
 {
   "action_id": "math.add-one",
-  "version": "1.0.0",
   "kind": "primitive",
   "title": "Add One",
   "description": "Increment a number by one",
@@ -24,8 +23,5 @@
     "required": ["value"],
     "additionalProperties": false
   },
-  "visibility": "internal",
-  "side_effect": "none",
   "idempotent": true
 }
-

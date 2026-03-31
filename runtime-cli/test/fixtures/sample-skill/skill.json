@@ -1,11 +1,6 @@
 {
   "skill_id": "sample.skill",
-  "version": "1.0.0",
   "title": "Sample Skill",
   "description": "A sample skill for CLI tests",
-  "entry_action": "workflow.increment",
-  "exposed_actions": [
-    "workflow.increment"
-  ]
+  "entry_action": "workflow.increment"
 }
-

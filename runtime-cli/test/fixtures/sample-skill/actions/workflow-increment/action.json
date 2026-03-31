@@ -1,6 +1,5 @@
 {
   "action_id": "workflow.increment",
-  "version": "1.0.0",
   "kind": "composite",
   "title": "Increment",
   "description": "Increment a number by one via internal helper",
@@ -24,8 +23,6 @@
     "required": ["value"],
     "additionalProperties": false
   },
-  "visibility": "public",
-  "side_effect": "none",
   "idempotent": true,
   "steps": [
     {

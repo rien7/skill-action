@@ -45,7 +45,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@rien7/skill-action-runtime": "0.3.0",
+    "@rien7/skill-action-runtime": "file:../runtime",
     "commander": "^14.0.3"
   },
   "devDependencies": {

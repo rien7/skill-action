@@ -116,10 +116,7 @@ describe("runtime CLI", () => {
     expect(parsed.issue_count).toBeGreaterThan(0);
     expect(parsed.packages[0]?.issues.map((issue) => issue.code)).toEqual(
       expect.arrayContaining([
-        "ACTION_ID_MISMATCH",
-        "VISIBILITY_MISMATCH",
         "ENTRY_ACTION_NOT_FOUND",
-        "EXPOSED_ACTION_NOT_FOUND",
       ]),
     );
     expect(process.exitCode).toBe(1);
