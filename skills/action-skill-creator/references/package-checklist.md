@@ -21,15 +21,19 @@ Use this file when creating or reviewing a full action-based skill package.
 - Prefer an exposed composite `entry_action` for the main workflow.
 - Keep helper actions `skill` or `internal` unless there is a concrete external call path.
 - Declare every action in `actions/actions.json`; do not infer actions from files.
+- Remember that the loader reads action directories directly, but the CLI validator also checks the manifest.
 
 ## `skill.json` Checklist
 
 - `skill_id` is stable and specific.
-- `version` starts at `1.0.0` unless the task says otherwise.
 - `title` is human-readable.
 - `description` is short and accurate.
 - `entry_action` exists in the package.
-- `exposed_actions` is minimal.
+- `entry_action` is package-local.
+- `exposed_actions` is minimal and intentional.
+
+The runtime schema makes `version` optional and defaults `exposed_actions` to `[]`.
+In this repo, prefer including both explicitly so the package surface stays stable.
 
 ## `actions/actions.json` Checklist
 
@@ -49,4 +53,5 @@ Use this file when creating or reviewing a full action-based skill package.
 - Check every action handoff:
   - the caller's `with` bindings satisfy the callee's `input_schema`
   - referenced step outputs exist in the producer's `output_schema`
-  - explicit `returns` is used when the final output contract needs to be stable
+  - composite `returns` is present and matches `output_schema`
+  - nested `steps[].action` references stay package-local

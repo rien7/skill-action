@@ -7,19 +7,20 @@ Use this file when designing or reviewing a single action.
 Every action needs:
 
 - `action_id`
-- `version`
 - `kind`
 - `title`
 - `description`
 - `input_schema`
 - `output_schema`
-- `visibility`
-- `side_effect`
 - `idempotent`
+
+The current runtime schema makes `version` optional and defaults `visibility` to `public` and `side_effect` to `none`.
+In this repo, prefer writing those fields explicitly so manifests and neighboring actions stay aligned.
 
 Composite actions also need:
 
 - `steps`
+- `returns`
 
 ## Choosing `kind`
 
@@ -30,9 +31,11 @@ Composite actions also need:
 
 - Use `$input.foo` to reference top-level input.
 - Use `$steps.step_id.output.foo` to reference prior step output.
+- Use bracket notation such as `$input["field-name"]` when a key is not a valid identifier.
 - Keep step IDs stable and simple because conditions and bindings depend on them.
 - Check that every bound field exists in the producer schema before relying on it.
 - Check that the resolved object matches the callee's `input_schema`; do not hand-wave shape conversion.
+- Remember that composite `returns` uses the same binding model as `with`.
 
 ## Condition Rules
 
@@ -53,9 +56,10 @@ Default to the narrowest visibility that works.
 
 ## Runtime Convention
 
-The RFC defines explicit composite `returns` bindings, and the local runtime supports them.
-If `returns` is omitted, the runtime still uses the last successful step output as a compatibility fallback.
-Use that fallback only when the output contract is truly equivalent; otherwise define `returns` explicitly.
+- Composite `returns` is required by the current RFC and runtime schema.
+- Nested composite steps must reference package-local `action_id` values only.
+- Primitive execution binding lives in the runtime environment, not in `action.json`.
+- The CLI validator also checks `actions/actions.json`, so keep manifest entries aligned with each action definition.
 
 ## Boundary Questions
 
@@ -64,5 +68,5 @@ Before building or refactoring an action, make sure you can answer:
 - What is the smallest stable unit of work here?
 - Should this stay one action or split into smaller actions?
 - Is the action meant to be `public`, `skill`, or `internal`?
-- Does execution require a runtime-global primitive executor or handler module?
+- Does execution require a runtime-provided primitive handler?
 - Do all action-to-action parameter handoffs have an explicit, schema-backed mapping?

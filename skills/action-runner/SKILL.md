@@ -1,57 +1,148 @@
 ---
 name: action-runner
-description: Run the published Skill Action runtime CLI to inspect skill packages, resolve actions, validate inputs, and execute actions or skills with RFC-aligned error handling.
+description: Run the Skill Action runtime CLI to inspect skill packages, validate manifests, resolve actions, validate input, and execute actions or skills with RFC-aligned request and response handling. Use when Codex needs to drive `skill-action-runtime` from the shell, interpret its structured output, or debug package loading, validation, resolution, and execution failures.
 ---
 
 # Action Runner
 
-## Overview
+This skill provides guidance for using the local `skill-action-runtime` CLI as a transport wrapper over the runtime.
 
-Use the published CLI package `@rien7/skill-action-runtime-cli` when you need to inspect or exercise the local action runtime from the shell.
-Keep requests aligned with the local RFC transport model: JSON-compatible requests in, structured JSON out, and a strict distinction between protocol-level failure and execution-result failure.
+## About The CLI
 
-## Workflow
+The CLI is not a separate orchestration system.
+Treat it as a shell transport for the runtime protocol:
 
-1. Clarify the goal before running commands:
-   - inspect loaded skills or actions
-   - validate a skill package
-   - resolve an action
-   - validate action input
-   - execute an action
-   - execute a skill
-2. Confirm the boundary of the request:
-   - which skill package or `skills/` directory should be loaded
-   - whether the target is a top-level `action_id` or `skill_id`
-   - whether an action ID is package-local or a fully-qualified runtime-global reference
-   - whether primitive execution requires `--handler-module`
-3. Confirm parameter contracts for execution requests:
-   - input JSON matches the target `input_schema`
-   - composite step outputs referenced downstream are actually produced upstream
-   - explicit `returns` should be preferred when the final output contract matters
-4. Before running the CLI, verify the binary exists:
+- JSON-compatible requests in
+- structured JSON or pretty output out
+- protocol-level failure outside execution
+- execution failure represented inside `data.status`
+
+## Core Principles
+
+### Choose The Narrowest Command
+
+Use the smallest command that answers the question:
+
+- `list-skills`
+- `list-actions`
+- `validate-skill-package`
+- `resolve-action`
+- `validate-action-input`
+- `execute-action`
+- `execute-skill`
+
+Prefer `--output json` when you need to inspect or quote fields programmatically.
+
+### Match The Runtime Loading Model
+
+The CLI loads packages in this order:
+
+1. explicit `--skill-package <dir>` entries
+2. explicit `--skills-dir <dir>` direct children that contain `skill.json`
+3. current directory if it contains `skill.json`
+4. otherwise `<cwd>/skills` direct children that contain `skill.json`
+
+Do not assume recursive discovery.
+
+### Distinguish Input Payload From Full Request Payload
+
+For `resolve-action`, `validate-action-input`, `execute-action`, and `execute-skill`, the CLI supports two request styles:
+
+1. Convenience flags such as `--skill-id`, `--action-id`, `--input-file`, and execution options
+2. Full protocol requests via `--request-json`, `--request-file`, or stdin when the required target flag is omitted
+
+Use full request payloads when you need to test exact protocol shapes.
+
+### Keep Failure Modes Separate
+
+Treat these as different classes of failure:
+
+- shell failure: binary missing, bad path, unreadable files
+- protocol failure: outer response has `ok: false`
+- execution failure: outer response has `ok: true` and `data.status: "failed"`
+
+Do not blur them in the report.
+
+### Treat Source As The Current Truth
+
+When README examples and implementation diverge, follow `runtime-cli/src`.
+As of the current implementation, `--handler-module` loads `primitiveHandlers` only.
+Do not assume `globalActions` or `fallbackPrimitiveHandler` are wired unless the source changes.
+
+## CLI Workflow
+
+### 1. Clarify The Goal
+
+Decide which of these you need:
+
+- inspect loaded skills
+- inspect loaded actions
+- validate package structure and manifest consistency
+- resolve one action within one skill
+- validate one action input payload
+- execute one action
+- execute one skill through `entry_action`
+
+### 2. Verify The Binary
+
+Check the executable before constructing bigger commands:
 
 ```bash
 command -v skill-action-runtime
 ```
 
-5. If the binary is missing, stop and return an explicit install hint:
+If it is missing, stop and surface the exact install command:
 
 ```bash
 pnpm add -g @rien7/skill-action-runtime-cli
 ```
 
-Mention the package name exactly and do not pretend the command ran.
+### 3. Load The Right Packages
 
-6. If the task needs primitive execution, confirm the handler module path and expected exports:
-   - `primitiveHandlers`
-   - optional `fallbackPrimitiveHandler`
-   - optional `globalActions`
-7. Prefer the narrowest command that answers the user's question, and prefer `--output json` when you need to inspect or quote the result programmatically.
-8. When a command fails, distinguish between:
-   - shell or command-availability failure
-   - protocol-level failure: outer response has `ok: false`
-   - execution-result failure: outer response has `ok: true` and `data.status: "failed"`
-9. Report the command outcome with the key stdout or stderr details and a concrete next step.
+Confirm which package set should be visible.
+Use explicit flags when ambiguity would matter.
+
+- Use `--skill-package` for one or a few specific packages.
+- Use `--skills-dir` when the caller wants every direct child package in a `skills/` folder.
+- Avoid mixing unrelated packages when action names could collide semantically.
+
+### 4. Choose The Right Request Shape
+
+Use convenience flags for routine checks.
+Use `--request-json`, `--request-file`, or stdin for exact protocol requests.
+
+For input payloads:
+
+- `--input-file <path>`
+- `--input-json <json>`
+
+For full request objects:
+
+- `--request-file <path>`
+- `--request-json <json>`
+- stdin when no request flags are given and the required target flag is omitted
+
+### 5. Add Execution Options Intentionally
+
+`execute-action` and `execute-skill` support:
+
+- `--dry-run`
+- `--trace-level none|basic|full`
+- `--timeout-ms <ms>`
+- `--max-depth <n>`
+- `--max-steps <n>`
+
+Use `--dry-run` when you want validation and trace behavior without invoking primitive handlers.
+
+### 6. Interpret The Result Correctly
+
+Read the outer envelope first:
+
+- `ok: false`: protocol failure before execution started
+- `ok: true` plus `data.status: "succeeded"`: execution success
+- `ok: true` plus `data.status: "failed"`: execution started but failed
+
+The CLI exits non-zero for both protocol failures and execution failures.
 
 ## Command Patterns
 
@@ -61,10 +152,10 @@ List discovered skills:
 skill-action-runtime list-skills --skills-dir ./skills --output json
 ```
 
-List actions, optionally with handler-provided globals:
+List actions:
 
 ```bash
-skill-action-runtime list-actions --skill-package ./skills/my-skill --handler-module ./handlers.mjs --output json
+skill-action-runtime list-actions --skill-package ./skills/my-skill --output json
 ```
 
 Validate one or more skill packages:
@@ -88,7 +179,7 @@ skill-action-runtime validate-action-input --skill-package ./skills/my-skill --a
 Execute an action:
 
 ```bash
-skill-action-runtime execute-action --skill-package ./skills/my-skill --action-id workflow.main --input-file ./input.json --output json
+skill-action-runtime execute-action --skill-package ./skills/my-skill --skill-id my.skill --action-id workflow.main --input-file ./input.json --output json
 ```
 
 Execute a skill:
@@ -97,16 +188,30 @@ Execute a skill:
 skill-action-runtime execute-skill --skill-package ./skills/my-skill --skill-id my.skill --input-file ./input.json --output json
 ```
 
-## Error Handling
+Use a full protocol request over stdin when you need to test exact runtime envelopes:
 
-- If `skill-action-runtime` is not installed, return the install command for `@rien7/skill-action-runtime-cli`.
-- If the CLI says no skill packages were found, tell the user to pass `--skill-package` or `--skills-dir`, or run from a skill package or repo root with `skills/`.
-- If the response is `ok: false`, treat it as request or resolution failure and surface the response `error.code` and `error.message`.
-- If the response is `ok: true` with `data.status: "failed"`, treat it as execution failure and surface the failing step, trace summary, or executor-related error.
-- If primitive execution fails because no executor is bound, tell the user the runtime needs a matching handler module or runtime-global binding for that primitive action.
-- If an action ID is ambiguous at top level, tell the user to load fewer packages or use a fully-qualified target.
+```bash
+echo '{"skill_id":"sample.skill","action_id":"workflow.increment","input":{"value":4}}' \
+  | skill-action-runtime execute-action --skill-package ./runtime-cli/test/fixtures/sample-skill --output json
+```
+
+## Validation And Debugging Notes
+
+- `validate-skill-package` checks package-level consistency such as `entry_action`, `exposed_actions`, manifest/action alignment, and nested action locality.
+- `resolve-action` proves top-level addressability, not successful execution.
+- `validate-action-input` proves input-schema acceptance, not handler availability.
+- `execute-skill` always enters through the package `entry_action`.
+- If primitive execution fails, check whether the addressed primitive action has a loaded handler under `primitiveHandlers`.
+
+## Reporting Rules
+
+- Quote the command you ran when that helps reproduce the result.
+- Surface the decisive fields, not the whole payload dump.
+- Include the exact `error.code` and `error.message` for protocol failures.
+- Include the failing status, trace hint, or missing binding detail for execution failures.
+- If package discovery failed, tell the user which loading rule the CLI tried and which explicit flag would remove ambiguity.
 
 ## Notes
 
-- The CLI is a transport wrapper around the runtime, so it should reflect RFC semantics rather than inventing a different error model.
-- Do not silently recover from schema or binding mismatches; surface them and explain which action edge is incompatible.
+- The CLI should reflect RFC semantics rather than inventing a different error model.
+- Do not silently recover from schema or binding mismatches; surface the incompatible edge directly.
