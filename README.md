@@ -70,6 +70,20 @@ Current examples in this repo are focused on authoring and running action-based 
 - `skills/action-runner`
 - `skills/action-skill-creator`
 
+### `example/`
+
+A public, inspectable example that shows the full lifecycle:
+
+- starting from a natural-language request
+- generating a runnable skill package
+- validating it through the runtime CLI
+- using that generated skill in a later request
+
+Read it in two steps:
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+
 ## Getting Started
 
 ### 1. Read the RFC summary
@@ -136,6 +150,59 @@ What this sample demonstrates:
 - `workflow.increment` is a composite Action
 - it calls the internal primitive Action `math.add-one`
 - primitive execution is provided through the handler module
+
+### 4. Read the minimal complete example
+
+If you want to see an end-to-end workflow instead of only a synthetic fixture, read:
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+
+The example package used in those two walkthroughs is [`example/skills/capture-link-to-apple-notes`](./example/skills/capture-link-to-apple-notes).
+
+Run it from the repository root:
+
+```bash
+skill-action-runtime validate-skill-package \
+  --skill-package ./example/skills/capture-link-to-apple-notes \
+  --output json
+```
+
+```bash
+skill-action-runtime execute-skill \
+  --skill-package ./example/skills/capture-link-to-apple-notes \
+  --skill-id capture.link_to_apple_notes \
+  --handler-module ./example/skills/capture-link-to-apple-notes/handlers.mjs \
+  --trace-level none \
+  --input-json '{"url":"https://www.example.com","dry_run":true}' \
+  --output json
+```
+
+### 5. Execution Flow And Idempotency
+
+```mermaid
+flowchart LR
+  U["User request"] --> S["execute-skill\nskill_id: capture.link_to_apple_notes\nentry_action: workflow.capture-link"]
+  S --> W["workflow.capture-link\ncomposite\nidempotent: false"]
+  W --> F["web.fetch-content\nprimitive\nidempotent: true"]
+  F --> N["notes.create-note\nprimitive\nidempotent: false"]
+  N --> O["Apple Notes note created"]
+  W --> R["Structured workflow output\nurl, fetch_url, note_title,\nnote_created, note_id, content_preview"]
+  F -. "safe to retry or revalidate" .-> F
+  N -. "do not blindly retry\nmay create duplicate notes" .-> N
+```
+
+In this example:
+
+- `web.fetch-content` is idempotent because repeating the fetch does not create a duplicate external record
+- `notes.create-note` is not idempotent because repeating it can create multiple notes
+- `workflow.capture-link` is not idempotent because it includes the non-idempotent note-creation step
+
+That difference is why the package also supports an input-level `dry_run` mode:
+
+- you can prove the workflow wiring safely
+- you can exercise the fetch step without creating a real note
+- you do not have to treat every validation run as a side-effecting write
 
 ## Reading Path By Role
 

@@ -70,6 +70,20 @@ TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./r
 - `skills/action-runner`
 - `skills/action-skill-creator`
 
+### `example/`
+
+这里放的是一套可以公开阅读的完整示例，展示：
+
+- 从自然语言需求出发
+- 生成一个可运行的 skill package
+- 通过 runtime CLI 做验证
+- 在后续请求里使用这个生成出来的 skill
+
+建议按这两个文件阅读：
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+
 ## 怎么开始
 
 ### 1. 先读规范摘要
@@ -136,6 +150,59 @@ echo '{"skill_id":"sample.skill","input":{"value":4}}' \
 - `workflow.increment` 是一个 composite Action
 - 它内部调用了 primitive Action `math.add-one`
 - primitive 的实际执行由 handler module 提供
+
+### 4. 看这个最小完整示例
+
+如果你想看的不是 synthetic fixture，而是一条完整的 end-to-end workflow，可以直接读：
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+
+这两篇 walkthrough 对应的 package 在 [`example/skills/capture-link-to-apple-notes`](./example/skills/capture-link-to-apple-notes)。
+
+下面这些命令都假设你当前在仓库根目录：
+
+```bash
+skill-action-runtime validate-skill-package \
+  --skill-package ./example/skills/capture-link-to-apple-notes \
+  --output json
+```
+
+```bash
+skill-action-runtime execute-skill \
+  --skill-package ./example/skills/capture-link-to-apple-notes \
+  --skill-id capture.link_to_apple_notes \
+  --handler-module ./example/skills/capture-link-to-apple-notes/handlers.mjs \
+  --trace-level none \
+  --input-json '{"url":"https://www.example.com","dry_run":true}' \
+  --output json
+```
+
+### 5. Execution Flow 与 Idempotency
+
+```mermaid
+flowchart LR
+  U["用户请求"] --> S["execute-skill\nskill_id: capture.link_to_apple_notes\nentry_action: workflow.capture-link"]
+  S --> W["workflow.capture-link\ncomposite\nidempotent: false"]
+  W --> F["web.fetch-content\nprimitive\nidempotent: true"]
+  F --> N["notes.create-note\nprimitive\nidempotent: false"]
+  N --> O["在 Apple Notes 中创建 note"]
+  W --> R["结构化输出\nurl, fetch_url, note_title,\nnote_created, note_id, content_preview"]
+  F -. "可以安全重试或重复验证" .-> F
+  N -. "不要盲目重试\n否则可能产生重复 note" .-> N
+```
+
+在这个示例里：
+
+- `web.fetch-content` 是幂等的，因为重复抓取不会创建重复的外部记录
+- `notes.create-note` 不是幂等的，因为重复执行可能创建多个 note
+- `workflow.capture-link` 也不是幂等的，因为它内部包含了创建 note 的非幂等步骤
+
+这也是为什么这个 package 还额外支持输入级别的 `dry_run`：
+
+- 可以安全地验证 workflow wiring
+- 可以真实跑过 fetch 这一步，但不创建 note
+- 不需要把每次验证都当成一次带副作用的写操作
 
 ## 按角色阅读
 
