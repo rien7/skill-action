@@ -9,15 +9,44 @@
 - 把一个可复用能力写成一个小 package
 - 在执行前先校验输入
 - 运行某个指定 Action，或者运行整个 Skill 的公开入口 Action
-- 把小 Action 组合成更大的 workflow，并且显式写出步骤之间怎么传值
+- 把小 Action 组合成更大的 workflow，并且清楚写出步骤之间怎么传值
 
-核心思路很直接：不要把行为藏在 prompt 或框架内部，而是把它写进运行时可以直接校验和执行的文件里。
+核心思路很简单：不要把行为藏在 prompt 或框架内部，而是把它写进运行时可以直接校验和执行的文件里。
+这个仓库定义了这套文件格式，并提供了对应的 runtime。
+
+## 快速开始
+
+1. 安装 CLI 运行时：
+
+```bash
+npm i -g @rien7/skill-action-runtime-cli
+```
+
+2. 安装这个仓库提供的 skills：
+
+```bash
+npx skills add rien7/skill-action
+```
+
+3. 在 agent 环境中使用 `action-skill-creator` 创建新的 skill package。
 
 ## 最小 Action/Skill 例子
 
-一个 Skill 本质上就是一个目录，里面至少有一个 `skill.json`，以及一个或多个 `actions/*/action.json`。
+在这个仓库里，一个 skill 是一个目录，里面包含 `skill.json`，以及一个或多个 `actions/*/action.json` 文件。
 
-最小可工作的形态可以长这样：
+最小目录结构如下：
+
+```txt
+sample-skill/
+  skill.json
+  actions/
+    workflow-increment/
+      action.json
+    math-add-one/
+      action.json
+```
+
+最小可工作形态如下：
 
 ```json
 {
@@ -55,42 +84,24 @@
 }
 ```
 
-这就足够表达一个最小 Skill：它的公开 workflow 会把输入数字加一后返回。
+这已经足以表达一个小型 skill：它的公开 workflow 会把输入数字加一后返回。
 
-## 为什么这不是 agent framework
+## 与 agent runtime 的对比
 
-更准确地说，这个项目是执行层，不是 agent framework。
+`skill-action` 更准确地说是执行层，而不是完整的 agent runtime。
 
-| `skill-action`                           | agent framework                         |
-| ---------------------------------------- | --------------------------------------- |
-| 运行显式定义好的 Action 和 Skill package | 在运行时决定下一步做什么                |
-| 依赖声明好的 schema 和 step wiring       | 往往依赖 planner、prompt 或框架内部状态 |
-| 提供可预测、可复用的执行单元             | 提供开放式的编排能力                    |
-| 很适合作为 agent 的底层能力              | 往往自己就是 agent 运行时               |
+| `skill-action`                       | agent runtime                               |
+| ------------------------------------ | ------------------------------------------- |
+| 运行命名好的 action 和 skill package | 在运行时决定下一步做什么                    |
+| 依赖声明好的输入、输出和步骤间数据流 | 往往依赖 planner、prompt 或隐藏的运行时状态 |
+| 提供可预测、可复用的执行单元         | 提供开放式编排能力                          |
+| 很适合作为 agent 的底层能力          | 往往自己就是完整的 agent 系统               |
 
-你当然可以在它上面构建 agents，但它本身更专注于把执行过程做得稳定、可检查、可复用。
-
-## 快速开始
-
-如果你想用最短路径从安装走到创建 skill：
-
-1. 安装 CLI 运行时：
-
-```bash
-npm i -g @rien7/skill-action-runtime-cli
-```
-
-2. 安装这个仓库提供的 skills：
-
-```bash
-npx skills add rien7/skill-action
-```
-
-3. 在 agents 环境中使用 `action-skill-creator` 来创建新的 skill package。
+你当然可以在它上面构建 agents，但这个项目的目标更明确：让行为更容易校验、执行和复用。
 
 ## 怎么开始
 
-### 1. 先读规范摘要
+### 1. 如果你想了解完整模型，再读规范
 
 建议按这个顺序读：
 
@@ -98,11 +109,11 @@ npx skills add rien7/skill-action
 2. [Action Runtime Protocol](./rfc/Action%20Runtime%20Protocol.md)
 3. [Skill Package Specification](./rfc/Skill%20Package%20Specification.md)
 
-如果你只想快速抓住重点，可以优先看：
+如果你只需要主要部分，可以优先看：
 
 - Action RFC：action kind、binding、condition、composite `returns`
-- Protocol RFC：request/response 模型、error model、deterministic execution
-- Skill Package RFC：package layout、`entry_action`、`exposed_actions`、local resolution
+- Protocol RFC：request/response 结构、错误、可重复执行
+- Skill Package RFC：目录结构、`entry_action`、暴露的 action、本地查找规则
 
 ### 2. 安装 runtime 和 CLI
 
@@ -157,7 +168,7 @@ echo '{"skill_id":"sample.skill","input":{"value":4}}' \
 
 ### 4. 看这个最小完整示例
 
-如果你想看的不是 synthetic fixture，而是一条完整的 end-to-end workflow，可以直接读：
+如果你想看一条基于这个仓库真实示例的完整 end-to-end workflow，可以直接读：
 
 - [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
 - [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
@@ -182,7 +193,7 @@ skill-action-runtime execute-skill \
   --output json
 ```
 
-### 5. Execution Flow 与 Idempotency
+### 5. 执行流程与安全重跑
 
 ```mermaid
 flowchart LR
@@ -196,15 +207,15 @@ flowchart LR
   N -. "不要盲目重试\n否则可能产生重复 note" .-> N
 ```
 
-在这个示例里：
+关键点：
 
-- `web.fetch-content` 是幂等的，因为重复抓取不会创建重复的外部记录
-- `notes.create-note` 不是幂等的，因为重复执行可能创建多个 note
-- `workflow.capture-link` 也不是幂等的，因为它内部包含了创建 note 的非幂等步骤
+- `web.fetch-content` 可以安全重跑，因为重复抓取不会创建重复的外部记录
+- `notes.create-note` 不适合盲目重跑，因为重复执行可能创建多个 note
+- `workflow.capture-link` 也不适合盲目重跑，因为它内部包含了创建 note 的步骤
 
 这也是为什么这个 package 还额外支持输入级别的 `dry_run`：
 
-- 可以安全地验证 workflow wiring
+- 可以安全验证整个 workflow
 - 可以真实跑过 fetch 这一步，但不创建 note
 - 不需要把每次验证都当成一次带副作用的写操作
 
@@ -212,17 +223,17 @@ flowchart LR
 
 ### `rfc/`
 
-这是仓库的规范层。
+这里写的是 action、skill 和执行方式的规范。
 
-- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md)：定义 Action 模型、binding、condition、composite 执行、`returns`
-- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md)：定义 transport、请求/响应结构、错误模型、执行语义
-- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md)：定义 package 布局、`skill.json`、`actions/actions.json`、入口 action 和暴露规则
+- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md)：action 模型，以及 composite action 的执行方式
+- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md)：请求、响应和错误的结构
+- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md)：skill package 的目录结构与公开入口
 
 ### `runtime/`
 
 TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./runtime/README.md)。
 
-它实现了四个核心协议能力：
+它提供 4 个核心能力：
 
 - `resolveAction`
 - `validateActionInput`
@@ -233,7 +244,7 @@ TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./r
 
 命令行运行时，发布包名为 [`@rien7/skill-action-runtime-cli`](./runtime-cli/README.md)。
 
-它把 RFC 里的协议模型暴露成 CLI 入口，用于：
+它通过命令行提供同一套能力，用于：
 
 - discovery
 - validation
@@ -242,9 +253,9 @@ TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./r
 
 ### `skills/`
 
-这里放的是基于同一套 RFC package 模型构建的 Skill 包和作者工具。
+这里放的是可复用的 skill 包，以及用于创建它们的辅助工具。
 
-当前仓库里的例子主要围绕 action-based skill 的创建与运行：
+当前仓库里的例子主要围绕 skill 的创建与运行：
 
 - `skills/action-creator`
 - `skills/action-runner`
@@ -255,7 +266,7 @@ TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./r
 这里放的是一套可以公开阅读的完整示例，展示：
 
 - 从自然语言需求出发
-- 生成一个可运行的 skill package
+- 生成一个可运行的 skill
 - 通过 runtime CLI 做验证
 - 在后续请求里使用这个生成出来的 skill
 
@@ -264,15 +275,9 @@ TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./r
 - [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
 - [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
 
-## 按角色阅读
+### 按角色阅读
 
-- 只想理解模型：先看 `rfc/`
-- 想嵌入运行时：先读 `rfc/`，再看 [`runtime/README.md`](./runtime/README.md)
-- 想从命令行跑：先读 `rfc/Action Runtime Protocol.md`，再看 [`runtime-cli/README.md`](./runtime-cli/README.md)
-- 想写 Skill package：先读 Skill Package RFC，再看 `skills/`
-
-## 仓库原则
-
-RFC 才是这个项目的产品表面。
-
-runtime、CLI 和 skill packages 的作用，是实现并验证这层表面，而不是替代它。
+- 如果你只想快速跑起来：先看 `快速开始`
+- 如果你想看完整示例：先看 `example/`
+- 如果你想看实现细节：读 `runtime/` 和 `runtime-cli/`
+- 如果你想写 skill：先看 `skills/`，再按需读 RFC
