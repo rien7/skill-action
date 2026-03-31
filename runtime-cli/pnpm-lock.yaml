@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@rien7/skill-action-runtime':
-        specifier: file:../runtime
-        version: file:../runtime
+        specifier: 0.4.1
+        version: 0.4.1
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -85,8 +85,8 @@ packages:
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
 
-  '@rien7/skill-action-runtime@file:../runtime':
-    resolution: {directory: ../runtime, type: directory}
+  '@rien7/skill-action-runtime@0.4.1':
+    resolution: {integrity: sha512-iTjpyfvxIr2snuqSf0o07ApzdrO+D+T+Lzfc8extPRd6izGv5QqX8cT3PlvEgZjpbGTJrwxuIsFHNCwku3ITCg==}
     engines: {node: '>=20'}
 
   '@rolldown/binding-android-arm64@1.0.0-rc.12':
@@ -713,7 +713,7 @@ snapshots:
     dependencies:
       quansync: 1.0.0
 
-  '@rien7/skill-action-runtime@file:../runtime':
+  '@rien7/skill-action-runtime@0.4.1':
     dependencies:
       ajv: 8.18.0
       zod: 4.3.6
