@@ -9,7 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "fixtures");
 const sampleSkillDir = path.join(fixturesDir, "sample-skill");
 const invalidSkillDir = path.join(fixturesDir, "invalid-skill");
-const globalRefSkillDir = path.join(fixturesDir, "global-ref-skill");
 const duplicateSkillDir = path.join(fixturesDir, "duplicate-skill");
 const handlerModulePath = path.join(fixturesDir, "handlers.mjs");
 
@@ -49,15 +48,13 @@ describe("runtime CLI", () => {
     expect(parsed.skills[0]?.skill_id).toBe("sample.skill");
   });
 
-  it("lists actions from discovered packages and handler module globals", async () => {
+  it("lists package actions without handler-defined globals", async () => {
     const io = captureStreams();
 
     await runCli([
       "list-actions",
       "--skill-package",
       sampleSkillDir,
-      "--handler-module",
-      handlerModulePath,
       "--output",
       "json",
     ]);
@@ -67,14 +64,13 @@ describe("runtime CLI", () => {
       actions: Array<{ action_id: string }>;
     };
 
-    expect(parsed.actions.map((item) => item.action_id)).toEqual([
+    expect(parsed.actions.map((item) => item.action_id).sort()).toEqual([
       "math.add-one",
       "workflow.increment",
-      "cli://math/add-one",
     ]);
   });
 
-  it("validates a correct skill package", async () => {
+  it("validates a correct skill package under RFC-local action rules", async () => {
     const io = captureStreams();
 
     await runCli([
@@ -96,29 +92,6 @@ describe("runtime CLI", () => {
     expect(parsed.issue_count).toBe(0);
     expect(parsed.packages[0]?.external_dependencies).toEqual([]);
     expect(process.exitCode).toBe(0);
-  });
-
-  it("records external dependencies for fully-qualified global action references", async () => {
-    const io = captureStreams();
-
-    await runCli([
-      "validate-skill-package",
-      "--skill-package",
-      globalRefSkillDir,
-      "--output",
-      "json",
-    ]);
-
-    const output = io.stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
-    const parsed = JSON.parse(output) as {
-      valid: boolean;
-      packages: Array<{ external_dependencies: string[] }>;
-    };
-
-    expect(parsed.valid).toBe(true);
-    expect(parsed.packages[0]?.external_dependencies).toEqual([
-      "cli://math/add-one",
-    ]);
   });
 
   it("reports package validation issues for an invalid skill package", async () => {
@@ -159,6 +132,8 @@ describe("runtime CLI", () => {
       "resolve-action",
       "--skill-package",
       sampleSkillDir,
+      "--skill-id",
+      "sample.skill",
       "--action-id",
       "workflow.increment",
       "--output",
@@ -166,13 +141,20 @@ describe("runtime CLI", () => {
     ]);
 
     const output = io.stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
-    const parsed = JSON.parse(output) as { ok: boolean; data: { action: { action_id: string } } };
+    const parsed = JSON.parse(output) as {
+      ok: boolean;
+      data: { skill_id: string; action_id: string; kind: string };
+    };
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.data.action.action_id).toBe("workflow.increment");
+    expect(parsed.data).toEqual({
+      skill_id: "sample.skill",
+      action_id: "workflow.increment",
+      kind: "composite",
+    });
   });
 
-  it("fails resolve-action when top-level action ids are ambiguous", async () => {
+  it("fails resolve-action when duplicate skill ids make package resolution ambiguous", async () => {
     const io = captureStreams();
 
     await runCli([
@@ -181,6 +163,8 @@ describe("runtime CLI", () => {
       sampleSkillDir,
       "--skill-package",
       duplicateSkillDir,
+      "--skill-id",
+      "sample.skill",
       "--action-id",
       "workflow.increment",
       "--output",
@@ -191,7 +175,7 @@ describe("runtime CLI", () => {
     const parsed = JSON.parse(output) as { ok: boolean; error?: { code?: string } };
 
     expect(parsed.ok).toBe(false);
-    expect(parsed.error?.code).toBe("ACTION_RESOLUTION_AMBIGUOUS");
+    expect(parsed.error?.code).toBe("SKILL_RESOLUTION_AMBIGUOUS");
     expect(process.exitCode).toBe(1);
   });
 
@@ -203,51 +187,61 @@ describe("runtime CLI", () => {
       "--skill-package",
       sampleSkillDir,
       "--request-json",
-      "{\"action_id\":\"workflow.increment\"}",
+      "{\"skill_id\":\"sample.skill\",\"action_id\":\"workflow.increment\"}",
       "--output",
       "json",
     ]);
 
     const output = io.stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
-    const parsed = JSON.parse(output) as { ok: boolean; data: { action: { action_id: string } } };
+    const parsed = JSON.parse(output) as {
+      ok: boolean;
+      data: { action_id: string };
+    };
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.data.action.action_id).toBe("workflow.increment");
+    expect(parsed.data.action_id).toBe("workflow.increment");
   });
 
-  it("resolves a global action provided by the handler module", async () => {
+  it("returns protocol failure for invalid execute-action input", async () => {
     const io = captureStreams();
 
     await runCli([
-      "resolve-action",
-      "--skill-package",
-      sampleSkillDir,
-      "--handler-module",
-      handlerModulePath,
-      "--action-id",
-      "cli://math/add-one",
-      "--output",
-      "json",
-    ]);
-
-    const output = io.stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
-    const parsed = JSON.parse(output) as { ok: boolean; data: { action: { action_id: string } } };
-
-    expect(parsed.ok).toBe(true);
-    expect(parsed.data.action.action_id).toBe("cli://math/add-one");
-  });
-
-  it("executes a skill using a handler module", async () => {
-    const io = captureStreams();
-
-    await runCli([
-      "execute-skill",
+      "execute-action",
       "--skill-package",
       sampleSkillDir,
       "--skill-id",
       "sample.skill",
+      "--action-id",
+      "workflow.increment",
       "--input-json",
-      "{\"value\": 4}",
+      "{\"value\":\"bad\"}",
+      "--handler-module",
+      handlerModulePath,
+      "--output",
+      "json",
+    ]);
+
+    const output = io.stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
+    const parsed = JSON.parse(output) as { ok: boolean; error?: { code?: string } };
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error?.code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("executes an action using a handler module", async () => {
+    const io = captureStreams();
+
+    await runCli([
+      "execute-action",
+      "--skill-package",
+      sampleSkillDir,
+      "--skill-id",
+      "sample.skill",
+      "--action-id",
+      "workflow.increment",
+      "--input-json",
+      "{\"value\":4}",
       "--handler-module",
       handlerModulePath,
       "--output",
@@ -264,17 +258,17 @@ describe("runtime CLI", () => {
     expect(parsed.data.output.value).toBe(5);
   });
 
-  it("executes a skill through a fully-qualified global action reference", async () => {
+  it("executes a skill using a handler module", async () => {
     const io = captureStreams();
 
     await runCli([
       "execute-skill",
       "--skill-package",
-      globalRefSkillDir,
+      sampleSkillDir,
       "--skill-id",
-      "global.ref.skill",
+      "sample.skill",
       "--input-json",
-      "{\"value\": 4}",
+      "{\"value\":4}",
       "--handler-module",
       handlerModulePath,
       "--output",
@@ -316,7 +310,7 @@ describe("runtime CLI", () => {
     expect(parsed.data.output.value).toBe(5);
   });
 
-  it("fails execution without handlers for primitive actions", async () => {
+  it("fails execution without primitive bindings after startup", async () => {
     const io = captureStreams();
 
     await runCli([
@@ -326,7 +320,7 @@ describe("runtime CLI", () => {
       "--skill-id",
       "sample.skill",
       "--input-json",
-      "{\"value\": 4}",
+      "{\"value\":4}",
       "--output",
       "json",
     ]);
@@ -335,7 +329,6 @@ describe("runtime CLI", () => {
     const parsed = JSON.parse(output) as {
       ok: boolean;
       data?: { status?: string };
-      error?: { code?: string };
     };
 
     expect(parsed.ok).toBe(true);

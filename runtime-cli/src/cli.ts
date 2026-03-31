@@ -2,7 +2,6 @@ import { Command, Option } from "commander";
 
 import {
   ActionRuntime,
-  type ActionDefinition,
   type ExecuteActionRequest,
   type ExecuteSkillRequest,
   type ResolveActionRequest,
@@ -33,25 +32,7 @@ function createRuntimeForCommand(
     actionRegistry: options.actionRegistry,
     skillRegistry: options.skillRegistry,
     ...(handlers?.primitiveHandlers ? { primitiveHandlers: handlers.primitiveHandlers } : {}),
-    ...(handlers?.fallbackPrimitiveHandler
-      ? { fallbackPrimitiveHandler: handlers.fallbackPrimitiveHandler }
-      : {}),
   });
-}
-
-function registerGlobalActions(
-  registries: LoadedRegistries,
-  globalActions?: ActionDefinition[],
-): void {
-  for (const action of globalActions ?? []) {
-    const registeredAction = {
-      definition: action,
-      sourcePath: "handler-module",
-    };
-
-    registries.actionRegistry.register(registeredAction);
-    registries.actions.push(registeredAction);
-  }
 }
 
 async function loadRuntimeContext(
@@ -62,8 +43,6 @@ async function loadRuntimeContext(
 }> {
   const registries = await loadRegistries(options);
   const handlers = options.handlerModule ? await loadHandlerModule(options.handlerModule) : undefined;
-
-  registerGlobalActions(registries, handlers?.globalActions);
 
   return {
     registries,
@@ -163,8 +142,8 @@ function requireString(value: unknown, fieldName: string): string {
 }
 
 async function getResolveActionRequest(options: {
+  skillId?: string;
   actionId?: string;
-  version?: string;
   requestFile?: string;
   requestJson?: string;
 }): Promise<ResolveActionRequest> {
@@ -181,14 +160,14 @@ async function getResolveActionRequest(options: {
   }
 
   return {
+    skill_id: requireString(options.skillId, "skill_id"),
     action_id: requireString(options.actionId, "action_id"),
-    ...(options.version ? { version: options.version } : {}),
   };
 }
 
 async function getValidateActionInputRequest(options: {
+  skillId?: string;
   actionId?: string;
-  version?: string;
   inputFile?: string;
   inputJson?: string;
   requestFile?: string;
@@ -207,13 +186,14 @@ async function getValidateActionInputRequest(options: {
   }
 
   return {
+    skill_id: requireString(options.skillId, "skill_id"),
     action_id: requireString(options.actionId, "action_id"),
-    ...(options.version ? { version: options.version } : {}),
     input: await readJsonInput(options),
   };
 }
 
 async function getExecuteActionRequest(options: {
+  skillId?: string;
   actionId?: string;
   inputFile?: string;
   inputJson?: string;
@@ -238,6 +218,7 @@ async function getExecuteActionRequest(options: {
   }
 
   return {
+    skill_id: requireString(options.skillId, "skill_id"),
     action_id: requireString(options.actionId, "action_id"),
     input: await readJsonInput(options),
     options: toExecutionOptions(options),
@@ -348,12 +329,12 @@ export function createProgram(): Command {
     addPackageOptions(
       addRequestOptions(
         program
-          .command("resolve-action")
-          .option("--action-id <id>", "Action identifier to resolve")
-          .option("--version <version>", "Optional action version")
-          .action(async (options) => {
-            const { registries, handlers } = await loadRuntimeContext(options);
-            const runtime = createRuntimeForCommand(registries, handlers);
+            .command("resolve-action")
+            .option("--skill-id <id>", "Skill identifier containing the action")
+            .option("--action-id <id>", "Action identifier to resolve")
+            .action(async (options) => {
+              const { registries, handlers } = await loadRuntimeContext(options);
+              const runtime = createRuntimeForCommand(registries, handlers);
             const result = await runtime.resolveAction(await getResolveActionRequest(options));
             printResult(result, options.output);
             setExitCodeFromResult(result);
@@ -368,8 +349,8 @@ export function createProgram(): Command {
         addPackageOptions(
           program
             .command("validate-action-input")
+            .option("--skill-id <id>", "Skill identifier containing the action")
             .option("--action-id <id>", "Action identifier to validate")
-            .option("--version <version>", "Optional action version")
             .action(async (options) => {
               const { registries, handlers } = await loadRuntimeContext(options);
               const runtime = createRuntimeForCommand(registries, handlers);
@@ -391,6 +372,7 @@ export function createProgram(): Command {
           addPackageOptions(
             program
               .command("execute-action")
+              .option("--skill-id <id>", "Skill identifier containing the action")
               .option("--action-id <id>", "Action identifier to execute")
               .action(async (options) => {
                 const { registries, handlers } = await loadRuntimeContext(options);

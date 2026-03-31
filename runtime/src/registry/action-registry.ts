@@ -45,7 +45,22 @@ export class InMemoryActionRegistry implements ActionRegistry {
     }
 
     if (!version) {
-      return allEntries[allEntries.length - 1]!;
+      if (allEntries.length === 1) {
+        return allEntries[0]!;
+      }
+
+      throw new RuntimeError(
+        "ACTION_RESOLUTION_AMBIGUOUS",
+        `Action "${actionId}" resolved to multiple candidates.`,
+        {
+          action_id: actionId,
+          candidates: allEntries.map((entry) => ({
+            version: entry.definition.version ?? null,
+            skill_id: entry.skillId ?? null,
+            source_path: entry.sourcePath ?? null,
+          })),
+        },
+      );
     }
 
     const entries = allEntries.filter((entry) => entry.definition.version === version);

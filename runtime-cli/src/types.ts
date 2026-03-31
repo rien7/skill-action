@@ -1,5 +1,4 @@
 import type {
-  ActionDefinition,
   PrimitiveActionHandler,
   PrimitiveActionHandlerMap,
 } from "@rien7/skill-action-runtime";
@@ -29,7 +28,5 @@ export interface RuntimeRequestOptions {
 }
 
 export interface HandlerModuleShape {
-  globalActions?: ActionDefinition[];
   primitiveHandlers?: PrimitiveActionHandlerMap;
-  fallbackPrimitiveHandler?: PrimitiveActionHandler;
 }

@@ -34,11 +34,25 @@ export class InMemorySkillRegistry implements SkillRegistry {
     }
 
     if (!version) {
-      return entries[entries.length - 1]!;
+      if (entries.length === 1) {
+        return entries[0]!;
+      }
+
+      throw new RuntimeError(
+        "SKILL_RESOLUTION_AMBIGUOUS",
+        `Skill "${skillId}" resolved to multiple packages.`,
+        {
+          skill_id: skillId,
+          candidates: entries.map((entry) => ({
+            version: entry.definition.version ?? null,
+            source_path: entry.sourcePath ?? null,
+          })),
+        },
+      );
     }
 
-    const match = entries.find((entry) => entry.definition.version === version);
-    if (!match) {
+    const matches = entries.filter((entry) => entry.definition.version === version);
+    if (matches.length === 0) {
       throw new RuntimeError(
         "VERSION_NOT_FOUND",
         `Version "${version}" was not found for skill "${skillId}".`,
@@ -49,7 +63,20 @@ export class InMemorySkillRegistry implements SkillRegistry {
       );
     }
 
-    return match;
+    if (matches.length > 1) {
+      throw new RuntimeError(
+        "SKILL_RESOLUTION_AMBIGUOUS",
+        `Skill "${skillId}" resolved to multiple packages.`,
+        {
+          skill_id: skillId,
+          version,
+          candidates: matches.map((entry) => ({
+            source_path: entry.sourcePath ?? null,
+          })),
+        },
+      );
+    }
+
+    return matches[0]!;
   }
 }
-

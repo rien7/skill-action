@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 
 import { RuntimeError } from "../types/errors.js";
-import { resolveReference, type BindingState } from "./bindings.js";
+import { isBindingReference, resolveReference, type BindingState } from "./bindings.js";
 
 type Token =
   | { type: "reference"; value: string }
@@ -45,28 +45,45 @@ function tokenize(expression: string): Token[] {
 
     if (char === "$") {
       let end = index + 1;
-      while (end < expression.length && /[A-Za-z0-9_$.]/.test(expression[end]!)) {
+      while (end < expression.length) {
+        const current = expression[end]!;
+        if (/\s/.test(current) || ["(", ")", "!", ">", "<", "=", "&", "|"].includes(current)) {
+          break;
+        }
         end += 1;
       }
-      tokens.push({ type: "reference", value: expression.slice(index, end) });
+      const reference = expression.slice(index, end);
+      if (!isBindingReference(reference)) {
+        throw new RuntimeError("INVALID_CONDITION", "Invalid binding reference in condition.", {
+          expression,
+          reference,
+        });
+      }
+      tokens.push({ type: "reference", value: reference });
       index = end;
       continue;
     }
 
-    if (char === '"' || char === "'") {
+    if (char === "\"") {
       let end = index + 1;
-      while (end < expression.length && expression[end] !== char) {
+      let escaped = false;
+      while (end < expression.length) {
+        const current = expression[end]!;
+        if (!escaped && current === "\"") {
+          break;
+        }
+        escaped = !escaped && current === "\\";
+        if (current !== "\\") {
+          escaped = false;
+        }
         end += 1;
       }
       if (end >= expression.length) {
-        throw new RuntimeError("INVALID_CONDITION", "Unterminated string in condition.", {
+        throw new RuntimeError("INVALID_CONDITION", "Unterminated JSON string literal in condition.", {
           expression,
         });
       }
-      tokens.push({
-        type: "string",
-        value: expression.slice(index + 1, end),
-      });
+      tokens.push({ type: "string", value: JSON.parse(expression.slice(index, end + 1)) as string });
       index = end + 1;
       continue;
     }
@@ -140,16 +157,40 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
     case "!=":
       return !isDeepStrictEqual(left, right);
     case ">":
-      return (left as number | string) > (right as number | string);
     case "<":
-      return (left as number | string) < (right as number | string);
     case ">=":
-      return (left as number | string) >= (right as number | string);
     case "<=":
-      return (left as number | string) <= (right as number | string);
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError("INVALID_CONDITION", `Operator "${operator}" requires numeric operands.`, {
+          operator,
+          left,
+          right,
+        });
+      }
+
+      switch (operator) {
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        default:
+          return left <= right;
+      }
     default:
       throw new RuntimeError("INVALID_CONDITION", `Unsupported operator "${operator}".`);
   }
+}
+
+function expectBoolean(value: unknown, context: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new RuntimeError("INVALID_CONDITION", `${context} must evaluate to a boolean.`, {
+      value,
+    });
+  }
+
+  return value;
 }
 
 function parsePrimary(stream: TokenStream, state: BindingState): unknown {
@@ -190,7 +231,7 @@ function parseUnary(stream: TokenStream, state: BindingState): unknown {
   const token = stream.peek();
   if (token?.type === "operator" && token.value === "!") {
     stream.next();
-    return !Boolean(parseUnary(stream, state));
+    return !expectBoolean(parseUnary(stream, state), "Negated condition");
   }
   return parseComparison(stream, state);
 }
@@ -209,22 +250,22 @@ function parseComparison(stream: TokenStream, state: BindingState): unknown {
 }
 
 function parseAnd(stream: TokenStream, state: BindingState): unknown {
-  let left = parseUnary(stream, state);
+  let left = expectBoolean(parseUnary(stream, state), "Left operand of &&");
 
   while (stream.peek()?.type === "operator" && stream.peek()?.value === "&&") {
     stream.next();
-    left = Boolean(left) && Boolean(parseUnary(stream, state));
+    left = left && expectBoolean(parseUnary(stream, state), "Right operand of &&");
   }
 
   return left;
 }
 
 function parseOr(stream: TokenStream, state: BindingState): unknown {
-  let left = parseAnd(stream, state);
+  let left = expectBoolean(parseAnd(stream, state), "Left operand of ||");
 
   while (stream.peek()?.type === "operator" && stream.peek()?.value === "||") {
     stream.next();
-    left = Boolean(left) || Boolean(parseAnd(stream, state));
+    left = left || expectBoolean(parseAnd(stream, state), "Right operand of ||");
   }
 
   return left;
@@ -238,5 +279,5 @@ export function evaluateCondition(expression: string, state: BindingState): bool
       expression,
     });
   }
-  return Boolean(result);
+  return expectBoolean(result, "Condition");
 }

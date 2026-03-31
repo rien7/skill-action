@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -16,6 +16,15 @@ import { loadPackageDirs } from "./load-packages.js";
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
+}
+
+async function exists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface ValidationIssue {
@@ -85,6 +94,9 @@ async function loadManifest(
   issues: ValidationIssue[],
 ): Promise<{ manifest?: ActionManifest; filePath: string }> {
   const filePath = path.join(packageDir, "actions", "actions.json");
+  if (!(await exists(filePath))) {
+    return { filePath };
+  }
 
   try {
     return {
@@ -104,13 +116,27 @@ async function loadManifest(
 
 async function loadActionDefinitions(
   packageDir: string,
-  manifest: ActionManifest,
+  manifest: ActionManifest | undefined,
   issues: ValidationIssue[],
 ): Promise<Map<string, ActionDefinition>> {
   const definitions = new Map<string, ActionDefinition>();
+  const actionsDir = path.join(packageDir, "actions");
+  if (!(await exists(actionsDir))) {
+    pushIssue(issues, {
+      code: "MISSING_ACTIONS_DIR",
+      message: `Missing actions directory at "${actionsDir}".`,
+      package_dir: packageDir,
+      file: actionsDir,
+    });
+    return definitions;
+  }
+
+  const entries = await readdir(actionsDir, { withFileTypes: true });
+  const actionDirs = entries.filter((entry) => entry.isDirectory());
+  const manifestEntries = new Map((manifest?.actions ?? []).map((entry) => [entry.path, entry]));
   const seenManifestIds = new Set<string>();
 
-  for (const reference of manifest.actions) {
+  for (const reference of manifest?.actions ?? []) {
     if (seenManifestIds.has(reference.action_id)) {
       pushIssue(issues, {
         code: "DUPLICATE_ACTION_ID",
@@ -119,44 +145,58 @@ async function loadActionDefinitions(
         file: path.join(packageDir, "actions", "actions.json"),
         action_id: reference.action_id,
       });
+    }
+    seenManifestIds.add(reference.action_id);
+  }
+
+  for (const entry of actionDirs) {
+    const filePath = path.join(actionsDir, entry.name, "action.json");
+    if (!(await exists(filePath))) {
       continue;
     }
-
-    seenManifestIds.add(reference.action_id);
-
-    const filePath = path.join(packageDir, "actions", reference.path, "action.json");
 
     try {
       const definition = actionDefinitionSchema.parse(await readJson(filePath));
 
-      if (definition.action_id !== reference.action_id) {
+      if (definitions.has(definition.action_id)) {
+        pushIssue(issues, {
+          code: "DUPLICATE_ACTION_ID",
+          message: `Duplicate action_id "${definition.action_id}" across package action definitions.`,
+          package_dir: packageDir,
+          file: filePath,
+          action_id: definition.action_id,
+        });
+        continue;
+      }
+
+      const manifestEntry = manifestEntries.get(entry.name);
+      if (manifestEntry && definition.action_id !== manifestEntry.action_id) {
         pushIssue(issues, {
           code: "ACTION_ID_MISMATCH",
-          message: `Manifest action_id "${reference.action_id}" does not match action.json action_id "${definition.action_id}".`,
+          message: `Manifest action_id "${manifestEntry.action_id}" does not match action.json action_id "${definition.action_id}".`,
           package_dir: packageDir,
           file: filePath,
-          action_id: reference.action_id,
+          action_id: manifestEntry.action_id,
         });
       }
 
-      if (definition.visibility !== reference.visibility) {
+      if (manifestEntry && definition.visibility !== manifestEntry.visibility) {
         pushIssue(issues, {
           code: "VISIBILITY_MISMATCH",
-          message: `Manifest visibility "${reference.visibility}" does not match action.json visibility "${definition.visibility}".`,
+          message: `Manifest visibility "${manifestEntry.visibility}" does not match action.json visibility "${definition.visibility}".`,
           package_dir: packageDir,
           file: filePath,
-          action_id: reference.action_id,
+          action_id: definition.action_id,
         });
       }
 
-      definitions.set(reference.action_id, definition);
+      definitions.set(definition.action_id, definition);
     } catch (error) {
       pushIssue(issues, {
         code: "INVALID_ACTION_JSON",
         message: error instanceof Error ? error.message : "Failed to parse action.json",
         package_dir: packageDir,
         file: filePath,
-        action_id: reference.action_id,
       });
     }
   }
@@ -178,11 +218,13 @@ function validateActionReferences(
 
     for (const step of definition.steps) {
       if (isRuntimeGlobalActionReference(step.action)) {
-        externalDependencies.add(step.action);
-        continue;
-      }
-
-      if (!actions.has(step.action)) {
+        pushIssue(issues, {
+          code: "ACTION_REFERENCE_NOT_LOCAL",
+          message: `Step "${step.id}" in action "${actionId}" must reference a package-local action_id.`,
+          package_dir: packageDir,
+          action_id: actionId,
+        });
+      } else if (!actions.has(step.action)) {
         pushIssue(issues, {
           code: "ACTION_REFERENCE_NOT_FOUND",
           message: `Step "${step.id}" in action "${actionId}" references undeclared action "${step.action}".`,
@@ -200,9 +242,7 @@ async function validatePackage(packageDir: string): Promise<PackageValidationRes
   const issues: ValidationIssue[] = [];
   const skill = await loadSkillDefinition(packageDir, issues);
   const manifest = await loadManifest(packageDir, issues);
-  const actions = manifest.manifest
-    ? await loadActionDefinitions(packageDir, manifest.manifest, issues)
-    : new Map<string, ActionDefinition>();
+  const actions = await loadActionDefinitions(packageDir, manifest.manifest, issues);
   const externalDependencies = validateActionReferences(packageDir, actions, issues);
 
   if (skill.definition) {

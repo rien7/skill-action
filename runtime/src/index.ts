@@ -3,6 +3,7 @@ export {
   type ActionRuntimeOptions,
   type PrimitiveActionHandler,
   type PrimitiveActionHandlerMap,
+  primitiveBindingKey,
 } from "./core/runtime.js";
 export {
   InMemoryActionRegistry,

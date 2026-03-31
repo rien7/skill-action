@@ -4,7 +4,6 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 
 import { evaluateCondition } from "../execution/conditions.js";
 import { resolveBindings } from "../execution/bindings.js";
-import { isRuntimeGlobalActionReference } from "../resolution/action-id.js";
 import type { ActionDefinition, CompositeActionDefinition, PrimitiveActionDefinition } from "../types/action.js";
 import { RuntimeError } from "../types/errors.js";
 import {
@@ -36,7 +35,7 @@ export interface PrimitiveActionHandlerContext {
   input: unknown;
   options: ExecutionOptions;
   requestId: string;
-  currentSkillId: string | undefined;
+  skillId: string;
 }
 
 export type PrimitiveActionHandler = (
@@ -49,7 +48,6 @@ export interface ActionRuntimeOptions {
   actionRegistry: ActionRegistry;
   skillRegistry: SkillRegistry;
   primitiveHandlers?: PrimitiveActionHandlerMap;
-  fallbackPrimitiveHandler?: PrimitiveActionHandler;
 }
 
 interface ExecutionState {
@@ -72,15 +70,17 @@ interface InvocationContext {
 
 interface ActionSelectionOptions {
   version?: string;
-  currentSkillId?: string;
-  requireLocal?: boolean;
+  skillId: string;
+}
+
+export function primitiveBindingKey(skillId: string, actionId: string): string {
+  return JSON.stringify([skillId, actionId]);
 }
 
 export class ActionRuntime {
   private readonly actionRegistry: ActionRegistry;
   private readonly skillRegistry: SkillRegistry;
   private readonly primitiveHandlers: PrimitiveActionHandlerMap;
-  private readonly fallbackPrimitiveHandler: PrimitiveActionHandler | undefined;
   private readonly ajv = new Ajv({ allErrors: true, strict: false });
   private readonly validatorCache = new Map<string, ValidateFunction>();
 
@@ -88,40 +88,42 @@ export class ActionRuntime {
     this.actionRegistry = options.actionRegistry;
     this.skillRegistry = options.skillRegistry;
     this.primitiveHandlers = options.primitiveHandlers ?? {};
-    this.fallbackPrimitiveHandler = options.fallbackPrimitiveHandler;
   }
 
   async resolveAction(
     request: ResolveActionRequest,
-  ): Promise<RuntimeResponse<{ action: ActionDefinition; skill_id?: string }>> {
+  ): Promise<RuntimeResponse<{ skill_id: string; action_id: string; kind: ActionDefinition["kind"] }>> {
     return this.respond(async (meta) => {
       const parsed = resolveActionRequestSchema.parse(request);
+      await this.skillRegistry.resolve(parsed.skill_id);
       const action = await this.resolveActionForRequest(parsed.action_id, {
-        ...(parsed.version ? { version: parsed.version } : {}),
+        skillId: parsed.skill_id,
       });
 
-      return this.success(meta, action.skillId
-        ? {
-            action: action.definition,
-            skill_id: action.skillId,
-          }
-        : {
-            action: action.definition,
-          });
+      return this.success(meta, {
+        skill_id: parsed.skill_id,
+        action_id: action.definition.action_id,
+        kind: action.definition.kind,
+      });
     });
   }
 
   async validateActionInput(
     request: ValidateActionInputRequest,
-  ): Promise<RuntimeResponse<{ valid: true }>> {
+  ): Promise<RuntimeResponse<{ valid: true; skill_id: string; action_id: string }>> {
     return this.respond(async (meta) => {
       const parsed = validateActionInputRequestSchema.parse(request);
+      await this.skillRegistry.resolve(parsed.skill_id);
       const action = await this.resolveActionForRequest(parsed.action_id, {
-        ...(parsed.version ? { version: parsed.version } : {}),
+        skillId: parsed.skill_id,
       });
-      this.validateAgainstSchema(action, "input", parsed.input);
+      this.validateAgainstSchema(action, "input", parsed.input, "protocol");
 
-      return this.success(meta, { valid: true });
+      return this.success(meta, {
+        valid: true,
+        skill_id: parsed.skill_id,
+        action_id: action.definition.action_id,
+      });
     });
   }
 
@@ -132,20 +134,23 @@ export class ActionRuntime {
       const parsed = executeActionRequestSchema.parse(request);
       const options = executionOptionsSchema.parse(parsed.options ?? {});
       const state = this.createExecutionState(meta.request_id, options);
-      const action = await this.resolveActionForRequest(parsed.action_id);
+      await this.skillRegistry.resolve(parsed.skill_id);
+      const action = await this.resolveActionForRequest(parsed.action_id, {
+        skillId: parsed.skill_id,
+      });
 
       this.assertVisibility(action, {
         callMode: "external-action",
-        currentSkillId: undefined,
+        currentSkillId: parsed.skill_id,
       });
 
       // Root input validation is protocol-level; if this fails, execution never starts.
-      this.validateAgainstSchema(action, "input", parsed.input);
+      this.validateAgainstSchema(action, "input", parsed.input, "protocol");
 
       const result = await this.executeStartedAction(action, parsed.input, state, {
-        depth: 1,
+        depth: 0,
         callMode: "external-action",
-        currentSkillId: undefined,
+        currentSkillId: parsed.skill_id,
         tracePath: undefined,
       });
       return this.success(meta, result);
@@ -161,8 +166,7 @@ export class ActionRuntime {
       const state = this.createExecutionState(meta.request_id, options);
       const skill = await this.skillRegistry.resolve(parsed.skill_id);
       const action = await this.resolveActionForRequest(skill.definition.entry_action, {
-        currentSkillId: skill.definition.skill_id,
-        requireLocal: true,
+        skillId: skill.definition.skill_id,
       });
 
       this.assertVisibility(action, {
@@ -171,10 +175,10 @@ export class ActionRuntime {
       });
 
       // Root input validation is protocol-level; if this fails, execution never starts.
-      this.validateAgainstSchema(action, "input", parsed.input);
+      this.validateAgainstSchema(action, "input", parsed.input, "protocol");
 
       const result = await this.executeStartedAction(action, parsed.input, state, {
-        depth: 1,
+        depth: 0,
         callMode: "skill-entry",
         currentSkillId: skill.definition.skill_id,
         tracePath: undefined,
@@ -213,7 +217,7 @@ export class ActionRuntime {
     }
 
     if (validateInput) {
-      this.validateAgainstSchema(action, "input", input);
+      this.validateAgainstSchema(action, "input", input, "execution");
     }
 
     const effectiveSkillId = context.currentSkillId ?? action.skillId;
@@ -246,8 +250,6 @@ export class ActionRuntime {
     state: ExecutionState,
     context: InvocationContext,
   ): Promise<unknown> {
-    this.incrementStepCount(state);
-
     const stepId = context.tracePath ?? "root";
     const startedAt = new Date().toISOString();
     let output: unknown = null;
@@ -257,14 +259,27 @@ export class ActionRuntime {
     if (state.options.dry_run) {
       status = "skipped";
     } else {
+      const skillId = action.skillId ?? context.currentSkillId;
+      if (!skillId) {
+        throw new RuntimeError(
+          "PRIMITIVE_BINDING_NOT_FOUND",
+          `Primitive action "${action.definition.action_id}" is missing package identity.`,
+          {
+            skill_id: null,
+            action_id: action.definition.action_id,
+          },
+        );
+      }
+
       const handler =
-        this.primitiveHandlers[action.definition.action_id] ?? this.fallbackPrimitiveHandler;
+        this.primitiveHandlers[primitiveBindingKey(skillId, action.definition.action_id)];
 
       if (!handler) {
         throw new RuntimeError(
-          "ACTION_EXECUTION_FAILED",
-          `No primitive handler was registered for action "${action.definition.action_id}".`,
+          "PRIMITIVE_BINDING_NOT_FOUND",
+          `No primitive binding was registered for action "${action.definition.action_id}" in skill "${skillId}".`,
           {
+            skill_id: skillId,
             action_id: action.definition.action_id,
           },
         );
@@ -276,7 +291,7 @@ export class ActionRuntime {
           input,
           options: state.options,
           requestId: state.requestId,
-          currentSkillId: context.currentSkillId,
+          skillId,
         });
         this.checkTimeout(state);
       } catch (cause) {
@@ -306,7 +321,7 @@ export class ActionRuntime {
     }
 
     if (status !== "skipped") {
-      this.validateAgainstSchema(action, "output", output);
+      this.validateAgainstSchema(action, "output", output, "execution");
     }
 
     return output;
@@ -319,11 +334,9 @@ export class ActionRuntime {
     context: InvocationContext,
   ): Promise<unknown> {
     const stepOutputs: Record<string, unknown> = {};
-    let lastOutput: unknown = null;
 
     for (const step of action.definition.steps) {
       this.checkTimeout(state);
-      this.incrementStepCount(state);
 
       const stepId = context.tracePath ? `${context.tracePath}.${step.id}` : step.id;
       const startedAt = new Date().toISOString();
@@ -333,7 +346,10 @@ export class ActionRuntime {
       };
 
       try {
-        if (step.if && !evaluateCondition(step.if, bindingState)) {
+        const reachable = step.if ? evaluateCondition(step.if, bindingState) : true;
+        this.incrementStepCount(state);
+
+        if (!reachable) {
           this.pushTrace(state, {
             step_id: stepId,
             action_id: step.action,
@@ -350,7 +366,9 @@ export class ActionRuntime {
         const nestedInput = resolveBindings(step.with, bindingState);
         const nestedAction = await this.resolveActionForRequest(
           step.action,
-          context.currentSkillId ? { currentSkillId: context.currentSkillId } : {},
+          {
+            skillId: context.currentSkillId ?? action.skillId!,
+          },
         );
 
         this.assertVisibility(nestedAction, {
@@ -365,7 +383,6 @@ export class ActionRuntime {
           tracePath: stepId,
         });
         stepOutputs[step.id] = output;
-        lastOutput = output;
       } catch (error) {
         if (!this.hasTraceStep(state, stepId)) {
           this.pushTrace(state, {
@@ -398,14 +415,12 @@ export class ActionRuntime {
       }
     }
 
-    const finalOutput = action.definition.returns
-      ? resolveBindings(action.definition.returns, {
-          input,
-          stepOutputs,
-        })
-      : lastOutput;
+    const finalOutput = resolveBindings(action.definition.returns, {
+      input,
+      stepOutputs,
+    });
 
-    this.validateAgainstSchema(action, "output", finalOutput);
+    this.validateAgainstSchema(action, "output", finalOutput, "execution");
     return finalOutput;
   }
 
@@ -413,6 +428,7 @@ export class ActionRuntime {
     action: RegisteredAction,
     target: "input" | "output",
     value: unknown,
+    phase: "protocol" | "execution",
   ): void {
     const schema = target === "input" ? action.definition.input_schema : action.definition.output_schema;
     const validator = this.getValidator(action, target, schema);
@@ -421,10 +437,11 @@ export class ActionRuntime {
     if (!valid) {
       const errors = this.formatAjvErrors(validator.errors ?? []);
       throw new RuntimeError(
-        "INVALID_INPUT",
+        phase === "protocol" ? "SCHEMA_VALIDATION_FAILED" : "ACTION_EXECUTION_FAILED",
         `${target} validation failed for action "${action.definition.action_id}".`,
         {
           action_id: action.definition.action_id,
+          skill_id: action.skillId ?? null,
           target,
           errors,
         },
@@ -449,7 +466,7 @@ export class ActionRuntime {
       return validator;
     } catch (error) {
       throw new RuntimeError(
-        "SCHEMA_VALIDATION_FAILED",
+        "SCHEMA_COMPILATION_FAILED",
         `Failed to compile ${target} schema for action "${action.definition.action_id}".`,
         error,
       );
@@ -513,12 +530,12 @@ export class ActionRuntime {
   }
 
   private incrementStepCount(state: ExecutionState): void {
-    state.stepCount += 1;
-    if (state.stepCount > state.options.max_steps) {
+    if (state.stepCount + 1 > state.options.max_steps) {
       throw new RuntimeError("MAX_STEPS_EXCEEDED", "Maximum execution steps exceeded.", {
         max_steps: state.options.max_steps,
       });
     }
+    state.stepCount += 1;
   }
 
   private checkTimeout(state: ExecutionState): void {
@@ -533,27 +550,11 @@ export class ActionRuntime {
 
   private async resolveActionForRequest(
     actionId: string,
-    options: ActionSelectionOptions = {},
+    options: ActionSelectionOptions,
   ): Promise<RegisteredAction> {
     const candidates = await this.actionRegistry.list(actionId, options.version);
-    const currentSkillId = options.currentSkillId;
-
-    if (isRuntimeGlobalActionReference(actionId)) {
-      const globalCandidates = candidates.filter((candidate) => candidate.skillId === undefined);
-      return this.selectResolvedAction(actionId, globalCandidates, options.version);
-    }
-
-    if (currentSkillId) {
-      const localCandidates = candidates.filter((candidate) => candidate.skillId === currentSkillId);
-      if (localCandidates.length > 0 || options.requireLocal) {
-        return this.selectResolvedAction(actionId, localCandidates, options.version);
-      }
-
-      const globalCandidates = candidates.filter((candidate) => candidate.skillId === undefined);
-      return this.selectResolvedAction(actionId, globalCandidates, options.version);
-    }
-
-    return this.selectResolvedAction(actionId, candidates, options.version);
+    const localCandidates = candidates.filter((candidate) => candidate.skillId === options.skillId);
+    return this.selectResolvedAction(actionId, localCandidates, options.version);
   }
 
   private selectResolvedAction(

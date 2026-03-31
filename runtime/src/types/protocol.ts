@@ -9,11 +9,12 @@ export const executionOptionsSchema = z.object({
 });
 
 export const resolveActionRequestSchema = z.object({
+  skill_id: z.string().min(1),
   action_id: z.string().min(1),
-  version: z.string().min(1).optional(),
 });
 
 export const executeActionRequestSchema = z.object({
+  skill_id: z.string().min(1),
   action_id: z.string().min(1),
   input: z.unknown().default({}),
   options: executionOptionsSchema.partial().optional(),
@@ -26,9 +27,9 @@ export const executeSkillRequestSchema = z.object({
 });
 
 export const validateActionInputRequestSchema = z.object({
+  skill_id: z.string().min(1),
   action_id: z.string().min(1),
   input: z.unknown(),
-  version: z.string().min(1).optional(),
 });
 
 export const traceStepSchema = z.object({
@@ -92,4 +93,3 @@ export type RuntimeFailureResponse = {
 };
 
 export type RuntimeResponse<T> = RuntimeSuccessResponse<T> | RuntimeFailureResponse;
-

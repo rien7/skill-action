@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import { actionDefinitionSchema, actionManifestSchema } from "../types/action.js";
+import { actionDefinitionSchema } from "../types/action.js";
 import { skillDefinitionSchema } from "../types/skill.js";
 import type { RegisteredAction } from "./action-registry.js";
 import type { RegisteredSkill } from "./skill-registry.js";
@@ -16,22 +16,34 @@ export async function loadSkillPackageFromDirectory(rootDir: string): Promise<{
   actions: RegisteredAction[];
 }> {
   const skillPath = path.join(rootDir, "skill.json");
-  const manifestPath = path.join(rootDir, "actions", "actions.json");
+  const actionsDir = path.join(rootDir, "actions");
 
   const skill = skillDefinitionSchema.parse(await readJsonFile(skillPath));
-  const manifest = actionManifestSchema.parse(await readJsonFile(manifestPath));
+  const entries = await readdir(actionsDir, { withFileTypes: true });
+  const actionDirs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(actionsDir, entry.name));
 
-  const actions = await Promise.all(
-    manifest.actions.map(async (reference) => {
-      const actionDirectory = path.join(rootDir, "actions", reference.path);
+  const loadedActions: Array<RegisteredAction | null> = await Promise.all(
+    actionDirs.map(async (actionDirectory) => {
       const actionPath = path.join(actionDirectory, "action.json");
-      const definition = actionDefinitionSchema.parse(await readJsonFile(actionPath));
+      try {
+        const definition = actionDefinitionSchema.parse(await readJsonFile(actionPath));
 
-      return {
-        definition,
-        skillId: skill.skill_id,
-        sourcePath: actionPath,
-      } satisfies RegisteredAction;
+        return {
+          definition,
+          skillId: skill.skill_id,
+          sourcePath: actionPath,
+        } satisfies RegisteredAction;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          return null;
+        }
+        throw error;
+      }
     }),
   );
 
@@ -40,7 +52,6 @@ export async function loadSkillPackageFromDirectory(rootDir: string): Promise<{
       definition: skill,
       sourcePath: skillPath,
     },
-    actions,
+    actions: loadedActions.filter((action): action is RegisteredAction => action !== null),
   };
 }
-

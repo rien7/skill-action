@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ActionRuntime } from "../src/core/runtime.js";
+import { ActionRuntime, primitiveBindingKey } from "../src/core/runtime.js";
 import { InMemoryActionRegistry } from "../src/registry/action-registry.js";
 import { InMemorySkillRegistry } from "../src/registry/skill-registry.js";
 
@@ -39,7 +39,7 @@ function createRuntime() {
     {
       skillId: "math.skill",
       definition: {
-        action_id: "math.internalSeed",
+        action_id: "math.seed",
         version: "1.0.0",
         kind: "primitive",
         title: "Seed",
@@ -69,7 +69,7 @@ function createRuntime() {
         version: "1.0.0",
         kind: "composite",
         title: "Double add",
-        description: "Use two steps to add and then add again.",
+        description: "Add twice using explicit returns.",
         input_schema: {
           type: "object",
           properties: {
@@ -93,7 +93,7 @@ function createRuntime() {
         steps: [
           {
             id: "seed",
-            action: "math.internalSeed",
+            action: "math.seed",
             with: {},
           },
           {
@@ -105,7 +105,7 @@ function createRuntime() {
             },
           },
           {
-            id: "addAgain",
+            id: "add_again",
             action: "math.add",
             with: {
               a: "$steps.add.output.sum",
@@ -115,8 +115,78 @@ function createRuntime() {
           },
         ],
         returns: {
-          sum: "$steps.addAgain.output.sum",
+          sum: "$steps.add_again.output.sum",
         },
+      },
+    },
+    {
+      skillId: "bindings.skill",
+      definition: {
+        action_id: "workflow.bracketBinding",
+        version: "1.0.0",
+        kind: "composite",
+        title: "Bracket Binding",
+        description: "Use bracket notation in bindings.",
+        input_schema: {
+          type: "object",
+          properties: {
+            "field-name": { type: "number" },
+          },
+          required: ["field-name"],
+          additionalProperties: false,
+        },
+        output_schema: {
+          type: "object",
+          properties: {
+            value: { type: "number" },
+          },
+          required: ["value"],
+          additionalProperties: false,
+        },
+        visibility: "public",
+        side_effect: "none",
+        idempotent: true,
+        steps: [
+          {
+            id: "compute",
+            action: "bindings.echo",
+            with: {
+              value: "$input[\"field-name\"]",
+            },
+          },
+        ],
+        returns: {
+          value: "$steps.compute.output.value",
+        },
+      },
+    },
+    {
+      skillId: "bindings.skill",
+      definition: {
+        action_id: "bindings.echo",
+        version: "1.0.0",
+        kind: "primitive",
+        title: "Echo",
+        description: "Echo a number",
+        input_schema: {
+          type: "object",
+          properties: {
+            value: { type: "number" },
+          },
+          required: ["value"],
+          additionalProperties: false,
+        },
+        output_schema: {
+          type: "object",
+          properties: {
+            value: { type: "number" },
+          },
+          required: ["value"],
+          additionalProperties: false,
+        },
+        visibility: "internal",
+        side_effect: "none",
+        idempotent: true,
       },
     },
   ]);
@@ -132,63 +202,88 @@ function createRuntime() {
         exposed_actions: ["workflow.doubleAdd"],
       },
     },
+    {
+      definition: {
+        skill_id: "bindings.skill",
+        version: "1.0.0",
+        title: "Bindings",
+        description: "Binding tests",
+        entry_action: "workflow.bracketBinding",
+        exposed_actions: ["workflow.bracketBinding"],
+      },
+    },
   ]);
 
   return new ActionRuntime({
     actionRegistry: actions,
     skillRegistry: skills,
     primitiveHandlers: {
-      "math.internalSeed": () => ({ sum: 1 }),
-      "math.add": ({ input }) => {
+      [primitiveBindingKey("math.skill", "math.seed")]: () => ({ sum: 1 }),
+      [primitiveBindingKey("math.skill", "math.add")]: ({ input }) => {
         const payload = input as { a: number; b: number };
-        return {
-          sum: payload.a + payload.b,
-        };
+        return { sum: payload.a + payload.b };
+      },
+      [primitiveBindingKey("bindings.skill", "bindings.echo")]: ({ input }) => {
+        return { value: (input as { value: number }).value };
       },
     },
   });
 }
 
 describe("ActionRuntime", () => {
-  it("resolves an action definition", async () => {
+  it("resolves an action within the addressed skill package", async () => {
     const runtime = createRuntime();
-    const response = await runtime.resolveAction({ action_id: "math.add" });
+    const response = await runtime.resolveAction({
+      skill_id: "math.skill",
+      action_id: "math.add",
+    });
 
     expect(response.ok).toBe(true);
     if (response.ok) {
-      expect(response.data.action.action_id).toBe("math.add");
+      expect(response.data).toEqual({
+        skill_id: "math.skill",
+        action_id: "math.add",
+        kind: "primitive",
+      });
     }
   });
 
-  it("rejects invalid action input", async () => {
-    const runtime = createRuntime();
-    const response = await runtime.validateActionInput({
-      action_id: "math.add",
-      input: { a: "bad", b: 2 },
-    });
-
-    expect(response.ok).toBe(false);
-    if (!response.ok) {
-      expect(response.error.code).toBe("INVALID_INPUT");
-    }
-  });
-
-  it("returns protocol-level failure when executeAction input is invalid before execution starts", async () => {
+  it("returns protocol failure when root input validation fails", async () => {
     const runtime = createRuntime();
     const response = await runtime.executeAction({
+      skill_id: "math.skill",
       action_id: "math.add",
       input: { a: "bad", b: 2 },
     });
 
     expect(response.ok).toBe(false);
     if (!response.ok) {
-      expect(response.error.code).toBe("INVALID_INPUT");
+      expect(response.error.code).toBe("SCHEMA_VALIDATION_FAILED");
+    }
+  });
+
+  it("validates action input against the addressed package action", async () => {
+    const runtime = createRuntime();
+    const response = await runtime.validateActionInput({
+      skill_id: "math.skill",
+      action_id: "math.add",
+      input: { a: 2, b: 3 },
+    });
+
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(response.data).toEqual({
+        valid: true,
+        skill_id: "math.skill",
+        action_id: "math.add",
+      });
     }
   });
 
   it("executes a composite action with explicit returns", async () => {
     const runtime = createRuntime();
     const response = await runtime.executeAction({
+      skill_id: "math.skill",
       action_id: "workflow.doubleAdd",
       input: { a: 2, b: 3 },
     });
@@ -200,7 +295,7 @@ describe("ActionRuntime", () => {
       expect(response.data.trace.steps.map((step) => step.step_id)).toEqual([
         "seed",
         "add",
-        "addAgain",
+        "add_again",
       ]);
     }
   });
@@ -218,101 +313,30 @@ describe("ActionRuntime", () => {
     }
   });
 
-  it("blocks external execution of internal actions", async () => {
+  it("supports bracket-notation bindings", async () => {
     const runtime = createRuntime();
-    const response = await runtime.executeAction({
-      action_id: "math.internalSeed",
-      input: {},
-    });
-
-    expect(response.ok).toBe(false);
-    if (!response.ok) {
-      expect(response.error.code).toBe("VISIBILITY_VIOLATION");
-    }
-  });
-
-  it("returns a failed execution result after execution has started", async () => {
-    const actions = new InMemoryActionRegistry([
-      {
-        definition: {
-          action_id: "math.explode",
-          version: "1.0.0",
-          kind: "primitive",
-          title: "Explode",
-          description: "Always fails during execution",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "public",
-          side_effect: "none",
-          idempotent: true,
-        },
-      },
-    ]);
-
-    const runtime = new ActionRuntime({
-      actionRegistry: actions,
-      skillRegistry: new InMemorySkillRegistry(),
-      primitiveHandlers: {
-        "math.explode": () => {
-          throw new Error("boom");
-        },
-      },
-    });
-
-    const response = await runtime.executeAction({
-      action_id: "math.explode",
-      input: { value: 1 },
+    const response = await runtime.executeSkill({
+      skill_id: "bindings.skill",
+      input: { "field-name": 7 },
     });
 
     expect(response.ok).toBe(true);
     if (response.ok) {
-      expect(response.data.status).toBe("failed");
-      expect(response.data.output).toBeNull();
-      expect(response.data.trace.steps).toHaveLength(1);
-      expect(response.data.trace.steps[0]?.status).toBe("failed");
+      expect(response.data.output).toEqual({ value: 7 });
     }
   });
 
-  it("fails top-level unqualified resolution when multiple candidates exist", async () => {
+  it("returns an execution failure when primitive binding is missing", async () => {
     const runtime = new ActionRuntime({
       actionRegistry: new InMemoryActionRegistry([
         {
-          skillId: "skill.one",
+          skillId: "math.skill",
           definition: {
-            action_id: "shared.echo",
+            action_id: "math.add",
             version: "1.0.0",
             kind: "primitive",
-            title: "Echo One",
-            description: "First candidate",
-            input_schema: { type: "object", additionalProperties: true },
-            output_schema: { type: "object", additionalProperties: true },
-            visibility: "public",
-            side_effect: "none",
-            idempotent: true,
-          },
-        },
-        {
-          skillId: "skill.two",
-          definition: {
-            action_id: "shared.echo",
-            version: "1.0.0",
-            kind: "primitive",
-            title: "Echo Two",
-            description: "Second candidate",
+            title: "Add",
+            description: "Add two numbers",
             input_schema: { type: "object", additionalProperties: true },
             output_schema: { type: "object", additionalProperties: true },
             visibility: "public",
@@ -321,238 +345,156 @@ describe("ActionRuntime", () => {
           },
         },
       ]),
-      skillRegistry: new InMemorySkillRegistry(),
+      skillRegistry: new InMemorySkillRegistry([
+        {
+          definition: {
+            skill_id: "math.skill",
+            version: "1.0.0",
+            title: "Math",
+            description: "Math",
+            entry_action: "math.add",
+            exposed_actions: ["math.add"],
+          },
+        },
+      ]),
     });
 
-    const response = await runtime.resolveAction({ action_id: "shared.echo" });
+    const response = await runtime.executeSkill({
+      skill_id: "math.skill",
+      input: {},
+    });
 
-    expect(response.ok).toBe(false);
-    if (!response.ok) {
-      expect(response.error.code).toBe("ACTION_RESOLUTION_AMBIGUOUS");
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(response.data.status).toBe("failed");
     }
   });
 
-  it("prefers skill-local actions before global fallback during nested execution", async () => {
-    const actionRegistry = new InMemoryActionRegistry([
-      {
-        definition: {
-          action_id: "math.add",
-          version: "1.0.0",
-          kind: "primitive",
-          title: "Global Add",
-          description: "Global candidate that should not win nested resolution",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "public",
-          side_effect: "none",
-          idempotent: true,
-        },
-      },
-      {
-        skillId: "sample.skill",
-        definition: {
-          action_id: "math.add",
-          version: "1.0.0",
-          kind: "primitive",
-          title: "Local Add",
-          description: "Skill-local candidate",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "internal",
-          side_effect: "none",
-          idempotent: true,
-        },
-      },
-      {
-        skillId: "sample.skill",
-        definition: {
-          action_id: "workflow.run",
-          version: "1.0.0",
-          kind: "composite",
-          title: "Run",
-          description: "Use local action first",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "public",
-          side_effect: "none",
-          idempotent: true,
-          steps: [
-            {
-              id: "compute",
-              action: "math.add",
-              with: {
-                value: "$input.value",
-              },
-            },
-          ],
-          returns: {
-            value: "$steps.compute.output.value",
-          },
-        },
-      },
-      {
-        definition: {
-          action_id: "util.increment",
-          version: "1.0.0",
-          kind: "primitive",
-          title: "Global Increment",
-          description: "Global fallback action",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "public",
-          side_effect: "none",
-          idempotent: true,
-        },
-      },
-      {
-        skillId: "fallback.skill",
-        definition: {
-          action_id: "workflow.globalFallback",
-          version: "1.0.0",
-          kind: "composite",
-          title: "Fallback",
-          description: "Use global fallback when local action is absent",
-          input_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          output_schema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-            required: ["value"],
-            additionalProperties: false,
-          },
-          visibility: "public",
-          side_effect: "none",
-          idempotent: true,
-          steps: [
-            {
-              id: "compute",
-              action: "util.increment",
-              with: {
-                value: "$input.value",
-              },
-            },
-          ],
-          returns: {
-            value: "$steps.compute.output.value",
-          },
-        },
-      },
-    ]);
-
-    const skillRegistry = new InMemorySkillRegistry([
-      {
-        definition: {
-          skill_id: "sample.skill",
-          version: "1.0.0",
-          title: "Sample",
-          description: "Uses local action",
-          entry_action: "workflow.run",
-          exposed_actions: ["workflow.run"],
-        },
-      },
-      {
-        definition: {
-          skill_id: "fallback.skill",
-          version: "1.0.0",
-          title: "Fallback",
-          description: "Uses global fallback action",
-          entry_action: "workflow.globalFallback",
-          exposed_actions: ["workflow.globalFallback"],
-        },
-      },
-    ]);
-
+  it("treats duplicate skill ids as protocol-level ambiguity", async () => {
     const runtime = new ActionRuntime({
-      actionRegistry,
-      skillRegistry,
+      actionRegistry: new InMemoryActionRegistry(),
+      skillRegistry: new InMemorySkillRegistry([
+        {
+          definition: {
+            skill_id: "dup.skill",
+            version: "1.0.0",
+            title: "One",
+            description: "First",
+            entry_action: "a",
+            exposed_actions: [],
+          },
+        },
+        {
+          definition: {
+            skill_id: "dup.skill",
+            version: "2.0.0",
+            title: "Two",
+            description: "Second",
+            entry_action: "a",
+            exposed_actions: [],
+          },
+        },
+      ]),
+    });
+
+    const response = await runtime.resolveAction({
+      skill_id: "dup.skill",
+      action_id: "a",
+    });
+
+    expect(response.ok).toBe(false);
+    if (!response.ok) {
+      expect(response.error.code).toBe("SKILL_RESOLUTION_AMBIGUOUS");
+    }
+  });
+
+  it("keys primitive bindings by package action identity", async () => {
+    const runtime = new ActionRuntime({
+      actionRegistry: new InMemoryActionRegistry([
+        {
+          skillId: "one.skill",
+          definition: {
+            action_id: "math.shared",
+            version: "1.0.0",
+            kind: "primitive",
+            title: "Shared",
+        description: "Shared id",
+        input_schema: { type: "object", additionalProperties: true },
+        output_schema: { type: "object", additionalProperties: true },
+        visibility: "public",
+        side_effect: "none",
+        idempotent: true,
+      },
+    },
+        {
+          skillId: "two.skill",
+          definition: {
+            action_id: "math.shared",
+            version: "1.0.0",
+            kind: "primitive",
+            title: "Shared",
+        description: "Shared id",
+        input_schema: { type: "object", additionalProperties: true },
+        output_schema: { type: "object", additionalProperties: true },
+        visibility: "public",
+        side_effect: "none",
+        idempotent: true,
+      },
+    },
+      ]),
+      skillRegistry: new InMemorySkillRegistry([
+        {
+          definition: {
+            skill_id: "one.skill",
+            version: "1.0.0",
+            title: "One",
+            description: "One",
+            entry_action: "math.shared",
+            exposed_actions: [],
+          },
+        },
+        {
+          definition: {
+            skill_id: "two.skill",
+            version: "1.0.0",
+            title: "Two",
+            description: "Two",
+            entry_action: "math.shared",
+            exposed_actions: [],
+          },
+        },
+      ]),
       primitiveHandlers: {
-        "math.add": ({ currentSkillId, input }) => ({
-          value: (input as { value: number }).value + (currentSkillId === "sample.skill" ? 1 : 100),
-        }),
-        "util.increment": ({ input }) => ({
-          value: (input as { value: number }).value + 10,
-        }),
+        [primitiveBindingKey("one.skill", "math.shared")]: () => ({ value: 1 }),
+        [primitiveBindingKey("two.skill", "math.shared")]: () => ({ value: 2 }),
       },
     });
 
-    const localResponse = await runtime.executeSkill({
-      skill_id: "sample.skill",
-      input: { value: 2 },
-    });
-    const fallbackResponse = await runtime.executeSkill({
-      skill_id: "fallback.skill",
-      input: { value: 2 },
+    const one = await runtime.executeSkill({ skill_id: "one.skill", input: {} });
+    const two = await runtime.executeSkill({ skill_id: "two.skill", input: {} });
+
+    expect(one.ok).toBe(true);
+    expect(two.ok).toBe(true);
+    if (one.ok && two.ok) {
+      expect(one.data.output).toEqual({ value: 1 });
+      expect(two.data.output).toEqual({ value: 2 });
+    }
+  });
+
+  it("applies max_steps to reached composite steps only", async () => {
+    const runtime = createRuntime();
+    const response = await runtime.executeAction({
+      skill_id: "math.skill",
+      action_id: "workflow.doubleAdd",
+      input: { a: 2, b: 3 },
+      options: {
+        max_steps: 2,
+      },
     });
 
-    expect(localResponse.ok).toBe(true);
-    expect(fallbackResponse.ok).toBe(true);
-    if (localResponse.ok && fallbackResponse.ok) {
-      expect(localResponse.data.output).toEqual({ value: 3 });
-      expect(fallbackResponse.data.output).toEqual({ value: 12 });
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(response.data.status).toBe("failed");
     }
   });
 });
