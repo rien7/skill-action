@@ -2,87 +2,91 @@
 
 [中文说明](./README.zh-CN.md)
 
-An RFC-driven runtime system for Action/Skill packages.
+## What You Can Do With It
 
-## What This Is
+With `skill-action`, you can:
 
-`skill-action` is an Action/Skill runtime system built from RFCs first.
+- describe a reusable capability as a small package
+- validate inputs before execution
+- run one named Action or a Skill's public entry Action
+- compose small Actions into larger workflows with explicit step wiring
 
-It treats Actions and Skill packages as explicit contracts with:
+The main idea is simple: instead of hiding behavior inside prompts or framework internals, put it into files the runtime can validate and execute directly.
 
-- deterministic execution semantics
-- schema-first input and output boundaries
-- package-local composition rules
-- protocol-defined resolution, validation, and execution behavior
+## Smallest Action/Skill Example
 
-The goal is to make agent-like capabilities executable as stable runtime units instead of leaving them as loosely defined prompts or framework-specific conventions.
+A Skill is a folder with a `skill.json` file plus one or more `actions/*/action.json` files.
 
-## Why This Exists
+Smallest working shape:
 
-This project exists to collapse agent-like behavior into a model that is:
+```json
+{
+  "skill_id": "sample.skill",
+  "title": "Sample Skill",
+  "entry_action": "workflow.increment"
+}
+```
 
-- deterministic: execution follows explicit steps, bindings, conditions, and returns
-- schema-first: every Action has a typed contract for validation and interoperability
-- composable: primitive and composite Actions can be assembled into local Skill graphs
-- inspectable: resolution, validation, and execution are protocol surfaces rather than hidden framework behavior
+```json
+{
+  "action_id": "workflow.increment",
+  "kind": "composite",
+  "idempotent": true,
+  "steps": [
+    {
+      "id": "addOne",
+      "action": "math.add-one",
+      "with": {
+        "value": "$input.value"
+      }
+    }
+  ],
+  "returns": {
+    "value": "$steps.addOne.output.value"
+  }
+}
+```
 
-In practice, this means you can take capabilities that often feel "agentic" and re-express them as runtime-loadable packages with predictable semantics.
+```json
+{
+  "action_id": "math.add-one",
+  "kind": "primitive",
+  "idempotent": true
+}
+```
 
-## What Is In This Repository
+That is enough to express a tiny Skill whose public workflow increments a number by one.
 
-### `rfc/`
+## Why This Is Not An Agent Framework
 
-The normative specification layer of the project.
+This project is best understood as an execution layer, not as an agent framework.
 
-- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md): Action model, bindings, conditions, composite execution, `returns`
-- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md): transport, request/response shapes, error model, execution semantics
-- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md): package layout, `skill.json`, `actions/actions.json`, entry action, exposure rules
+| `skill-action`                          | Agent framework                                       |
+| --------------------------------------- | ----------------------------------------------------- |
+| Runs explicit Action and Skill packages | Decides what to do next at runtime                    |
+| Uses declared schemas and step wiring   | Often relies on planners, prompts, or framework state |
+| Gives you predictable reusable units    | Gives you open-ended orchestration                    |
+| Fits well under agents                  | Usually tries to be the agent runtime itself          |
 
-### `runtime/`
+You can build agents on top of this project, but this project itself focuses on making execution predictable and inspectable.
 
-The TypeScript runtime implementation published as [`@rien7/skill-action-runtime`](./runtime/README.md).
+## Quick Start
 
-It implements the core protocol operations:
+If you want the shortest path from install to skill creation:
 
-- `resolveAction`
-- `validateActionInput`
-- `executeAction`
-- `executeSkill`
+1. Install the CLI runtime:
 
-### `runtime-cli/`
+```bash
+npm i -g @rien7/skill-action-runtime-cli
+```
 
-The command-line runtime published as [`@rien7/skill-action-runtime-cli`](./runtime-cli/README.md).
+2. Install the bundled skills:
 
-It exposes the RFC model through a CLI transport for:
+```bash
+npx skills add rien7/skill-action
+```
 
-- discovery
-- validation
-- resolution
-- execution
-
-### `skills/`
-
-Skill packages and authoring helpers that use the same package model defined in the RFCs.
-
-Current examples in this repo are focused on authoring and running action-based skills:
-
-- `skills/action-creator`
-- `skills/action-runner`
-- `skills/action-skill-creator`
-
-### `example/`
-
-A public, inspectable example that shows the full lifecycle:
-
-- starting from a natural-language request
-- generating a runnable skill package
-- validating it through the runtime CLI
-- using that generated skill in a later request
-
-Read it in two steps:
-
-- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
-- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+3. In your agents environment, use `action-skill-creator` to create a new skill package.
 
 ## Getting Started
 
@@ -123,7 +127,7 @@ pnpm install
 pnpm check
 ```
 
-### 3. Run a sample Skill package
+### 3. Run the checked-in sample Skill package
 
 This repository includes a sample package at [`runtime-cli/test/fixtures/sample-skill`](./runtime-cli/test/fixtures/sample-skill).
 
@@ -203,6 +207,62 @@ That difference is why the package also supports an input-level `dry_run` mode:
 - you can prove the workflow wiring safely
 - you can exercise the fetch step without creating a real note
 - you do not have to treat every validation run as a side-effecting write
+
+## What Is In This Repository
+
+### `rfc/`
+
+The normative specification layer of the project.
+
+- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md): Action model, bindings, conditions, composite execution, `returns`
+- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md): transport, request/response shapes, error model, execution semantics
+- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md): package layout, `skill.json`, `actions/actions.json`, entry action, exposure rules
+
+### `runtime/`
+
+The TypeScript runtime implementation published as [`@rien7/skill-action-runtime`](./runtime/README.md).
+
+It implements the core protocol operations:
+
+- `resolveAction`
+- `validateActionInput`
+- `executeAction`
+- `executeSkill`
+
+### `runtime-cli/`
+
+The command-line runtime published as [`@rien7/skill-action-runtime-cli`](./runtime-cli/README.md).
+
+It exposes the RFC model through a CLI transport for:
+
+- discovery
+- validation
+- resolution
+- execution
+
+### `skills/`
+
+Skill packages and authoring helpers that use the same package model defined in the RFCs.
+
+Current examples in this repo are focused on authoring and running action-based skills:
+
+- `skills/action-creator`
+- `skills/action-runner`
+- `skills/action-skill-creator`
+
+### `example/`
+
+A public, inspectable example that shows the full lifecycle:
+
+- starting from a natural-language request
+- generating a runnable skill package
+- validating it through the runtime CLI
+- using that generated skill in a later request
+
+Read it in two steps:
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
 
 ## Reading Path By Role
 

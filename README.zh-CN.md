@@ -2,87 +2,91 @@
 
 [English](./README.md)
 
-一个以 RFC 为核心入口的 Action/Skill 运行时系统。
+## 你可以用它做什么
 
-## 这是什么
+用 `skill-action`，你可以：
 
-`skill-action` 是一个 RFC-driven 的 Action/Skill runtime system。
+- 把一个可复用能力写成一个小 package
+- 在执行前先校验输入
+- 运行某个指定 Action，或者运行整个 Skill 的公开入口 Action
+- 把小 Action 组合成更大的 workflow，并且显式写出步骤之间怎么传值
 
-它把 Action 和 Skill package 看作一组显式契约，强调：
+核心思路很直接：不要把行为藏在 prompt 或框架内部，而是把它写进运行时可以直接校验和执行的文件里。
 
-- deterministic 的执行语义
-- schema-first 的输入输出边界
-- package-local 的组合规则
-- protocol-defined 的解析、校验与执行行为
+## 最小 Action/Skill 例子
 
-目标是把原本偏 agent-like 的能力，收敛成可以稳定执行、稳定验证、稳定组合的运行时单元，而不是停留在松散 prompt 或某个框架私有约定里。
+一个 Skill 本质上就是一个目录，里面至少有一个 `skill.json`，以及一个或多个 `actions/*/action.json`。
 
-## 为什么存在
+最小可工作的形态可以长这样：
 
-这个项目存在的原因，是把 agent-like 能力收敛成一种：
+```json
+{
+  "skill_id": "sample.skill",
+  "title": "Sample Skill",
+  "entry_action": "workflow.increment"
+}
+```
 
-- deterministic：执行步骤、binding、condition、returns 都是显式定义的
-- schema-first：每个 Action 都有可验证、可互操作的契约
-- composable：primitive Action 和 composite Action 可以组成局部 Skill 图
-- inspectable：解析、校验、执行都是协议层能力，而不是黑盒框架行为
+```json
+{
+  "action_id": "workflow.increment",
+  "kind": "composite",
+  "idempotent": true,
+  "steps": [
+    {
+      "id": "addOne",
+      "action": "math.add-one",
+      "with": {
+        "value": "$input.value"
+      }
+    }
+  ],
+  "returns": {
+    "value": "$steps.addOne.output.value"
+  }
+}
+```
 
-换句话说，它试图把“像 agent 一样工作”的能力，重新表达成“可装载、可组合、可预测”的 package/runtime 模型。
+```json
+{
+  "action_id": "math.add-one",
+  "kind": "primitive",
+  "idempotent": true
+}
+```
 
-## 仓库里有什么
+这就足够表达一个最小 Skill：它的公开 workflow 会把输入数字加一后返回。
 
-### `rfc/`
+## 为什么这不是 agent framework
 
-这是仓库的规范层。
+更准确地说，这个项目是执行层，不是 agent framework。
 
-- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md)：定义 Action 模型、binding、condition、composite 执行、`returns`
-- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md)：定义 transport、请求/响应结构、错误模型、执行语义
-- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md)：定义 package 布局、`skill.json`、`actions/actions.json`、入口 action 和暴露规则
+| `skill-action`                           | agent framework                         |
+| ---------------------------------------- | --------------------------------------- |
+| 运行显式定义好的 Action 和 Skill package | 在运行时决定下一步做什么                |
+| 依赖声明好的 schema 和 step wiring       | 往往依赖 planner、prompt 或框架内部状态 |
+| 提供可预测、可复用的执行单元             | 提供开放式的编排能力                    |
+| 很适合作为 agent 的底层能力              | 往往自己就是 agent 运行时               |
 
-### `runtime/`
+你当然可以在它上面构建 agents，但它本身更专注于把执行过程做得稳定、可检查、可复用。
 
-TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./runtime/README.md)。
+## 快速开始
 
-它实现了四个核心协议能力：
+如果你想用最短路径从安装走到创建 skill：
 
-- `resolveAction`
-- `validateActionInput`
-- `executeAction`
-- `executeSkill`
+1. 安装 CLI 运行时：
 
-### `runtime-cli/`
+```bash
+npm i -g @rien7/skill-action-runtime-cli
+```
 
-命令行运行时，发布包名为 [`@rien7/skill-action-runtime-cli`](./runtime-cli/README.md)。
+2. 安装这个仓库提供的 skills：
 
-它把 RFC 里的协议模型暴露成 CLI 入口，用于：
+```bash
+npx skills add rien7/skill-action
+```
 
-- discovery
-- validation
-- resolution
-- execution
-
-### `skills/`
-
-这里放的是基于同一套 RFC package 模型构建的 Skill 包和作者工具。
-
-当前仓库里的例子主要围绕 action-based skill 的创建与运行：
-
-- `skills/action-creator`
-- `skills/action-runner`
-- `skills/action-skill-creator`
-
-### `example/`
-
-这里放的是一套可以公开阅读的完整示例，展示：
-
-- 从自然语言需求出发
-- 生成一个可运行的 skill package
-- 通过 runtime CLI 做验证
-- 在后续请求里使用这个生成出来的 skill
-
-建议按这两个文件阅读：
-
-- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
-- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
+3. 在 agents 环境中使用 `action-skill-creator` 来创建新的 skill package。
 
 ## 怎么开始
 
@@ -123,7 +127,7 @@ pnpm install
 pnpm check
 ```
 
-### 3. 跑一个 sample skill package
+### 3. 跑仓库里自带的 sample Skill package
 
 仓库里自带一个 sample package，路径在 [`runtime-cli/test/fixtures/sample-skill`](./runtime-cli/test/fixtures/sample-skill)。
 
@@ -203,6 +207,62 @@ flowchart LR
 - 可以安全地验证 workflow wiring
 - 可以真实跑过 fetch 这一步，但不创建 note
 - 不需要把每次验证都当成一次带副作用的写操作
+
+## 仓库里有什么
+
+### `rfc/`
+
+这是仓库的规范层。
+
+- [`rfc/Action Specification.md`](./rfc/Action%20Specification.md)：定义 Action 模型、binding、condition、composite 执行、`returns`
+- [`rfc/Action Runtime Protocol.md`](./rfc/Action%20Runtime%20Protocol.md)：定义 transport、请求/响应结构、错误模型、执行语义
+- [`rfc/Skill Package Specification.md`](./rfc/Skill%20Package%20Specification.md)：定义 package 布局、`skill.json`、`actions/actions.json`、入口 action 和暴露规则
+
+### `runtime/`
+
+TypeScript 运行时实现，发布包名为 [`@rien7/skill-action-runtime`](./runtime/README.md)。
+
+它实现了四个核心协议能力：
+
+- `resolveAction`
+- `validateActionInput`
+- `executeAction`
+- `executeSkill`
+
+### `runtime-cli/`
+
+命令行运行时，发布包名为 [`@rien7/skill-action-runtime-cli`](./runtime-cli/README.md)。
+
+它把 RFC 里的协议模型暴露成 CLI 入口，用于：
+
+- discovery
+- validation
+- resolution
+- execution
+
+### `skills/`
+
+这里放的是基于同一套 RFC package 模型构建的 Skill 包和作者工具。
+
+当前仓库里的例子主要围绕 action-based skill 的创建与运行：
+
+- `skills/action-creator`
+- `skills/action-runner`
+- `skills/action-skill-creator`
+
+### `example/`
+
+这里放的是一套可以公开阅读的完整示例，展示：
+
+- 从自然语言需求出发
+- 生成一个可运行的 skill package
+- 通过 runtime CLI 做验证
+- 在后续请求里使用这个生成出来的 skill
+
+建议按这两个文件阅读：
+
+- [`example/01-create-the-skill.md`](./example/01-create-the-skill.md)
+- [`example/02-use-the-skill.md`](./example/02-use-the-skill.md)
 
 ## 按角色阅读
 
