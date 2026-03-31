@@ -9,7 +9,6 @@ Use this file when creating or reviewing a full action-based skill package.
   SKILL.md
   skill.json
   actions/
-    actions.json
     <action-name>/
       action.json
 ```
@@ -18,10 +17,9 @@ Use this file when creating or reviewing a full action-based skill package.
 
 - Keep skills under the repository `skills/` folder.
 - Treat the skill as the distribution unit and actions as execution units.
-- Prefer an exposed composite `entry_action` for the main workflow.
-- Keep helper actions `skill` or `internal` unless there is a concrete external call path.
-- Declare every action in `actions/actions.json`; do not infer actions from files.
-- Remember that the loader reads action directories directly, but the CLI validator also checks the manifest.
+- Prefer a composite `entry_action` for the main workflow.
+- Do not infer actions from filenames, scripts, or docs.
+- If `action-runner` is available in the environment, prefer it for validation and execution.
 
 ## `skill.json` Checklist
 
@@ -30,16 +28,6 @@ Use this file when creating or reviewing a full action-based skill package.
 - `description` is short and accurate.
 - `entry_action` exists in the package.
 - `entry_action` is package-local.
-- `exposed_actions` is minimal and intentional.
-
-The runtime schema makes `version` optional and defaults `exposed_actions` to `[]`.
-In this repo, prefer including both explicitly so the package surface stays stable.
-
-## `actions/actions.json` Checklist
-
-- Each `action_id` is unique.
-- Each `path` resolves to a real action directory.
-- `visibility` matches the action's own `action.json`.
 
 ## Design Guidance
 
@@ -51,6 +39,7 @@ In this repo, prefer including both explicitly so the package surface stays stab
   - `SKILL.md` should name the `entry_action`
   - `SKILL.md` should give a minimal valid input example
   - `SKILL.md` should say whether normal execution should use `execute-skill` or another path
+  - `SKILL.md` should prefer `action-runner` when that skill is available
   - `SKILL.md` should list platform or permission prerequisites
 - Do not add `handlers.*` by default for RFC-core packages.
 - If the package deliberately uses a runtime-cli-specific `handlers.*` extension:
@@ -61,7 +50,6 @@ In this repo, prefer including both explicitly so the package surface stays stab
 - Confirm the package boundary before scaffolding:
   - what belongs in this skill
   - what should stay in another skill or in runtime-global registrations
-  - which actions are externally callable versus helper-only
 - Check every action handoff:
   - the caller's `with` bindings satisfy the callee's `input_schema`
   - referenced step outputs exist in the producer's `output_schema`

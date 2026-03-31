@@ -1,6 +1,6 @@
 ---
 name: action-runner
-description: Run the Skill Action runtime CLI to inspect skill packages, validate manifests, resolve actions, validate input, and execute actions or skills with RFC-aligned request and response handling. Use when Codex needs to drive `skill-action-runtime` from the shell, interpret its structured output, or debug package loading, validation, resolution, and execution failures.
+description: Run the Skill Action runtime CLI to inspect skill packages, validate packages, resolve actions, validate input, and execute actions or skills with RFC-aligned request and response handling. Use when Codex needs to drive `skill-action-runtime` from the shell, interpret its structured output, or debug package loading, validation, resolution, and execution failures.
 ---
 
 # Action Runner
@@ -43,6 +43,20 @@ The CLI loads packages in this order:
 4. otherwise `<cwd>/skills` direct children that contain `skill.json`
 
 Do not assume recursive discovery.
+Do not rely on cwd inference when the session started outside the repo or from a generic directory such as `~/General`.
+In those cases, use an explicit absolute `--skill-package` path.
+
+### Prefer Direct Execution Over CLI Exploration
+
+If the target package and action are already known, do not start with `--help`.
+Go straight to one of:
+
+- `validate-skill-package`
+- `resolve-action`
+- `validate-action-input`
+- `execute-skill`
+
+Read CLI help only when the command surface itself is the unknown.
 
 ### Distinguish Input Payload From Full Request Payload
 
@@ -63,13 +77,12 @@ Treat these as different classes of failure:
 
 Do not blur them in the report.
 
-### Treat Source As The Current Truth
+### Stay Self-Contained
 
-When README examples and implementation diverge, follow `runtime-cli/src`.
+Do not assume repository source files or RFC files are available at runtime.
+Use the command contracts and handler compatibility guidance bundled with this skill.
 Treat `--handler-module` as a runtime-cli-specific extension, not as RFC-core runtime behavior.
-As of the current implementation, `--handler-module` loads `primitiveHandlers` only.
-Primitive handler keys for that extension must match `primitiveBindingKey(skillId, actionId)` from the runtime source exactly.
-At the current implementation, that key is `JSON.stringify([skillId, actionId])`.
+When primitive handlers are involved, prefer the dual-key compatibility strategy described by `action-skill-creator`.
 
 ## CLI Workflow
 
@@ -107,6 +120,7 @@ Use explicit flags when ambiguity would matter.
 - Use `--skill-package` for one or a few specific packages.
 - Use `--skills-dir` when the caller wants every direct child package in a `skills/` folder.
 - Avoid mixing unrelated packages when action names could collide semantically.
+- Prefer absolute paths for `--skill-package` in review, debugging, and reproducible examples.
 
 ### 4. Choose The Right Request Shape
 
@@ -170,7 +184,7 @@ skill-action-runtime validate-skill-package --skills-dir ./skills --output json
 Resolve an action:
 
 ```bash
-skill-action-runtime resolve-action --skill-package ./skills/my-skill --action-id workflow.main --output json
+skill-action-runtime resolve-action --skill-package ./skills/my-skill --request-json '{"skill_id":"my.skill","action_id":"workflow.main"}' --output json
 ```
 
 Validate action input:
@@ -194,18 +208,18 @@ skill-action-runtime execute-skill --skill-package ./skills/my-skill --skill-id 
 Use a full protocol request over stdin when you need to test exact runtime envelopes:
 
 ```bash
-echo '{"skill_id":"sample.skill","action_id":"workflow.increment","input":{"value":4}}' \
-  | skill-action-runtime execute-action --skill-package ./runtime-cli/test/fixtures/sample-skill --output json
+echo '{"skill_id":"my.skill","action_id":"workflow.main","input":{"value":4}}' \
+  | skill-action-runtime execute-action --skill-package /absolute/path/to/skills/my-skill --output json
 ```
 
 ## Validation And Debugging Notes
 
-- `validate-skill-package` checks package-level consistency such as `entry_action`, `exposed_actions`, manifest/action alignment, and nested action locality.
+- `validate-skill-package` checks package-level consistency such as `entry_action` and nested action locality.
 - `resolve-action` proves top-level addressability, not successful execution.
 - `validate-action-input` proves input-schema acceptance, not handler availability.
 - `execute-skill` always enters through the package `entry_action`.
 - If you are using the runtime-cli-specific `--handler-module` extension and primitive execution fails, check whether the addressed primitive action has a loaded handler under `primitiveHandlers`.
-- For that extension path, verify the exported key string exactly matches the runtime binding key for that `skill_id` and `action_id`.
+- For that extension path, prefer registering both `action_id` and `JSON.stringify([skill_id, action_id])` so the package stays usable without source inspection.
 - If the runtime response identifies a concrete binding or handler error, do not collapse it into a generic environment caveat.
 
 ## Reporting Rules

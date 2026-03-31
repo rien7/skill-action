@@ -14,9 +14,6 @@ Every action needs:
 - `output_schema`
 - `idempotent`
 
-The current runtime schema makes `version` optional and defaults `visibility` to `public` and `side_effect` to `none`.
-In this repo, prefer writing those fields explicitly so manifests and neighboring actions stay aligned.
-
 Composite actions also need:
 
 - `steps`
@@ -46,20 +43,11 @@ The local runtime currently supports:
 
 Keep conditions deterministic and side-effect free.
 
-## Visibility Heuristics
-
-- `public`: external call path is intentional
-- `skill`: helper action that should only run inside the skill boundary
-- `internal`: helper action used only by other actions
-
-Default to the narrowest visibility that works.
-
 ## Runtime Convention
 
 - Composite `returns` is required by the current RFC and runtime schema.
 - Nested composite steps must reference package-local `action_id` values only.
 - Primitive execution binding lives in the runtime environment, not in `action.json`.
-- The CLI validator also checks `actions/actions.json`, so keep manifest entries aligned with each action definition.
 
 ## Boundary Questions
 
@@ -67,6 +55,5 @@ Before building or refactoring an action, make sure you can answer:
 
 - What is the smallest stable unit of work here?
 - Should this stay one action or split into smaller actions?
-- Is the action meant to be `public`, `skill`, or `internal`?
 - Does execution require a runtime-provided primitive handler?
 - Do all action-to-action parameter handoffs have an explicit, schema-backed mapping?

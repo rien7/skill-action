@@ -1,6 +1,6 @@
 ---
 name: action-creator
-description: Create or update RFC-aligned primitive and composite actions in this repository. Use when Codex needs to add an action, refactor logic into package-local actions, repair `action.json`, update `actions/actions.json`, define bindings, conditions, visibility, or JSON Schema contracts, or make an action valid under the local runtime and validator.
+description: Create or update primitive and composite actions using bundled action-contract rules. Use when Codex needs to add an action, refactor logic into package-local actions, repair `action.json`, define bindings, conditions, or JSON Schema contracts, or make an action valid under the local runtime and validator.
 ---
 
 # Action Creator
@@ -19,8 +19,7 @@ Two action kinds exist:
 In this repo, action authoring spans three surfaces:
 
 - `actions/<action-dir>/action.json`: executable contract
-- `actions/actions.json`: package manifest and visibility mirror
-- `skill.json`: only when `entry_action` or `exposed_actions` changes
+- `skill.json`: only when `entry_action` changes
 
 ## Core Principles
 
@@ -52,11 +51,11 @@ Do not try to encode handler-module paths or runtime wiring in `action.json`.
 ## Read Before Editing
 
 1. Read [references/action-authoring.md](references/action-authoring.md) for the local checklist.
-2. Read [rfc/Action Specification.md](/Users/rien7/Github/skill-action/rfc/Action%20Specification.md) when exact field semantics, bindings, or condition rules matter.
-3. Read [rfc/Action Runtime Protocol.md](/Users/rien7/Github/skill-action/rfc/Action%20Runtime%20Protocol.md) when execution or resolution behavior matters.
-4. Read [action.ts](/Users/rien7/Github/skill-action/runtime/src/types/action.ts) when you need the exact current parser constraints.
+2. Use this skill's bundled references as the primary source of truth for action contracts and bindings.
+3. Prefer validator output and neighboring valid actions over external repo-only documentation.
 
 If the task is really about creating or repairing a whole skill package, switch to or also use `action-skill-creator`.
+If the task is a new package action set, let `action-skill-creator` scaffold the package first instead of inventing manifests from scratch.
 
 ## Action Creation Process
 
@@ -76,7 +75,6 @@ If the action boundary is ambiguous, resolve that before touching schemas.
 Read the neighboring files before editing:
 
 - `skill.json`
-- `actions/actions.json`
 - the target `action.json`
 - any upstream or downstream actions that bind into or out of this action
 
@@ -90,7 +88,6 @@ Use `composite` when the workflow is deterministic, ordered, and should stay dec
 For primitive actions:
 
 - keep schemas narrow
-- set `side_effect` honestly
 - mark `idempotent` conservatively
 - remember that implementation binding lives in the runtime, not the package
 
@@ -102,19 +99,12 @@ For composite actions:
 - keep `if` expressions deterministic and side-effect free
 - declare `returns` explicitly and make it match `output_schema`
 
-### 4. Edit The Contract And Manifest Together
+### 4. Edit The Contract Deliberately
 
 Update all affected files in one pass:
 
 - `actions/<action-dir>/action.json`
-- `actions/actions.json`
-- `skill.json` when package entry or public surface changes
-
-When editing the manifest:
-
-- keep `action_id`, `path`, and `visibility` aligned with the action definition
-- declare each action exactly once
-- do not infer visibility from folder names or neighboring files
+- `skill.json` when the package `entry_action` changes
 
 ### 5. Validate Data Flow
 
@@ -143,12 +133,10 @@ If the action is tricky, test the real call path instead of only reading JSON:
 
 - run the validator
 - run the narrowest CLI command that proves the contract
-- update schemas, bindings, or visibility when execution surfaces a mismatch
+- update schemas or bindings when execution surfaces a mismatch
 
 ## Authoring Rules
 
-- Prefer explicit `visibility` and `side_effect` even though the runtime schema has defaults.
-- Prefer explicit `version` when neighboring actions use repo-standard semver metadata.
 - Use step IDs that satisfy `[A-Za-z_][A-Za-z0-9_]*`.
 - Keep conditions limited to RFC operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`.
 - Keep binding values JSON-shaped; plain strings only become bindings when the entire string matches a supported reference.
