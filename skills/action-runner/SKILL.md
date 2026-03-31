@@ -66,8 +66,10 @@ Do not blur them in the report.
 ### Treat Source As The Current Truth
 
 When README examples and implementation diverge, follow `runtime-cli/src`.
+Treat `--handler-module` as a runtime-cli-specific extension, not as RFC-core runtime behavior.
 As of the current implementation, `--handler-module` loads `primitiveHandlers` only.
-Do not assume `globalActions` or `fallbackPrimitiveHandler` are wired unless the source changes.
+Primitive handler keys for that extension must match `primitiveBindingKey(skillId, actionId)` from the runtime source exactly.
+At the current implementation, that key is `JSON.stringify([skillId, actionId])`.
 
 ## CLI Workflow
 
@@ -132,7 +134,8 @@ For full request objects:
 - `--max-depth <n>`
 - `--max-steps <n>`
 
-Use `--dry-run` when you want validation and trace behavior without invoking primitive handlers.
+`--dry-run` and trace options are runtime-cli-specific execution extensions rather than RFC-core protocol fields.
+Use `--dry-run` when you want implementation-level validation and trace behavior without invoking primitive handlers.
 
 ### 6. Interpret The Result Correctly
 
@@ -201,7 +204,9 @@ echo '{"skill_id":"sample.skill","action_id":"workflow.increment","input":{"valu
 - `resolve-action` proves top-level addressability, not successful execution.
 - `validate-action-input` proves input-schema acceptance, not handler availability.
 - `execute-skill` always enters through the package `entry_action`.
-- If primitive execution fails, check whether the addressed primitive action has a loaded handler under `primitiveHandlers`.
+- If you are using the runtime-cli-specific `--handler-module` extension and primitive execution fails, check whether the addressed primitive action has a loaded handler under `primitiveHandlers`.
+- For that extension path, verify the exported key string exactly matches the runtime binding key for that `skill_id` and `action_id`.
+- If the runtime response identifies a concrete binding or handler error, do not collapse it into a generic environment caveat.
 
 ## Reporting Rules
 
@@ -214,4 +219,5 @@ echo '{"skill_id":"sample.skill","action_id":"workflow.increment","input":{"valu
 ## Notes
 
 - The CLI should reflect RFC semantics rather than inventing a different error model.
+- Prefer RFC-core command paths in documentation and guidance; mention runtime-cli-specific extensions only when they are actually needed.
 - Do not silently recover from schema or binding mismatches; surface the incompatible edge directly.
