@@ -32,6 +32,12 @@ This creates:
 - one primitive helper action
 - `SKILL.md` with direct execution guidance
 
+Keep the first happy-path run lean:
+
+- prefer `execute-skill` over exploratory reads when the public path is already known
+- prefer `--trace-level none` on success-path execution
+- document any workflow-defined verification input separately from CLI `--dry-run`
+
 ## First Validation Commands
 
 ```bash

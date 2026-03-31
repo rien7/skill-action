@@ -195,6 +195,7 @@ Use this skill when the request matches the package capability described in \`sk
 Route matching requests directly to the public entry action \`$entry_action\`.
 Do not start with CLI help or command discovery.
 If the environment includes the \`action-runner\` skill, use it for validation and execution instead of reconstructing CLI usage from scratch.
+For normal use, do not read \`skill.json\` or implementation files before the first execution. Read internals only if the public entry path fails.
 
 Minimal input example:
 
@@ -210,11 +211,14 @@ Normal execution path:
 skill-action-runtime execute-skill \\
   --skill-package $target_dir \\
   --skill-id $(printf '%s' "$skill_id") \\
+  --trace-level none \\
   --input-json '{"value":1}' \\
   --output json
 \`\`\`
 
 Use \`execute-action\` only for helper-level debugging.
+If the package later adds a workflow-defined verification input such as \`dry_run\`, document it separately from CLI \`--dry-run\` because the CLI flag skips primitive handlers.
+If you need more detail after a failure, rerun the same command with \`--trace-level basic\` or \`--trace-level full\`.
 If execution fails, repair the package and rerun the same \`execute-skill\` path.
 EOF
 

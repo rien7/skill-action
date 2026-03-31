@@ -36,9 +36,12 @@ Use this file when creating or reviewing a full action-based skill package.
 - Keep explicit boundaries between package metadata, action definitions, and runtime behavior.
 - Make the package immediately usable by a later agent:
   - `SKILL.md` should map matching requests to the public workflow directly
+  - `SKILL.md` should tell later agents not to read manifests or implementation files before the first public run when the path is already known
   - `SKILL.md` should name the `entry_action`
   - `SKILL.md` should give a minimal valid input example
   - `SKILL.md` should say whether normal execution should use `execute-skill` or another path
+  - `SKILL.md` should prefer `--trace-level none` for the happy path and explain when to raise it
+  - `SKILL.md` should distinguish any workflow-defined verification input from CLI `--dry-run`
   - `SKILL.md` should prefer `action-runner` when that skill is available
   - `SKILL.md` should list platform or permission prerequisites
 - Do not add `handlers.*` by default for RFC-core packages.
@@ -60,6 +63,7 @@ Use this file when creating or reviewing a full action-based skill package.
   - resolve the public action
   - validate a minimal happy-path input
   - execute through the real public entry path when safely possible
+  - prefer `--trace-level none` for the first successful execution so large outputs do not swamp context
   - do not treat `--dry-run` as proof for composite workflows that need primitive outputs for downstream bindings
   - do not dismiss a concrete runtime error as an environment caveat when the response identifies a missing handler, bad binding, or code-level failure
   - if execution fails, repair the package and rerun before considering the skill complete

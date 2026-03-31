@@ -69,7 +69,9 @@ Before writing files, decide:
 - the exact execution path a later agent should use first:
   - `execute-skill` versus `execute-action`
   - required `--skill-id` and `--action-id`
+  - the default trace level for the happy path
   - a minimal valid input example
+  - whether the package needs a workflow-defined verification input such as `dry_run`, distinct from CLI `--dry-run`
 - which environment prerequisites must be checked before live execution
 
 If this is a new package, bootstrap from the local bootstrap script first.
@@ -139,11 +141,14 @@ Keep `SKILL.md` focused on:
 For executable skills, `SKILL.md` must also make these points explicit:
 
 - route matching requests straight to the package `entry_action`; do not start by reading CLI help or enumerating commands
+- if the public path is already known, do not tell a later agent to read `skill.json`, `action.json`, or implementation files before the first run
 - name the `entry_action` explicitly
 - state the minimal required input fields in user terms
 - state the exact execution path when shell execution is needed:
   - prefer `execute-skill` for normal use through the package `entry_action`
   - use `execute-action` only for targeted debugging or helper-level checks
+  - prefer `--trace-level none` on happy-path execution and raise it only after a failure
+- if the package uses a workflow-defined verification input such as `dry_run`, explain that it is different from CLI `--dry-run`
 - if the environment includes the `action-runner` skill, prefer it for validation and execution
 - list hard runtime prerequisites such as OS, binaries, permissions, network access, or external apps
 - tell the agent to repair failing actions first and then rerun the same execution path before concluding the package works
@@ -170,8 +175,10 @@ When the package is intended to execute, also use:
 
 Choose the narrowest command that proves the package works.
 For a user-facing workflow, prefer proving the happy path with `execute-skill` because that is the real entry path later agents should take.
+Prefer `--trace-level none` for happy-path proof so large step payloads do not flood the context window.
 Always prefer an explicit absolute `--skill-package` path over cwd-based discovery when the session did not start in this repo.
 If live execution has side effects or environment constraints, use `--dry-run` only when it can still prove something meaningful.
+If the package needs a workflow-defined verification input such as `dry_run`, document and use that input rather than CLI `--dry-run`.
 Do not rely on `--dry-run` for composite workflows whose later bindings depend on primitive step outputs, because skipped steps may leave `$steps.*.output` references unresolved.
 In that case, combine `resolve-action`, `validate-action-input`, targeted helper checks, and the closest safe real execution you can run.
 
@@ -216,6 +223,7 @@ Before finishing, confirm all of the following:
 - Every action-to-action handoff has a checked input/output contract.
 - Composite outputs declare explicit `returns` compatible with `output_schema`.
 - Input and output schemas are present and JSON Schema-compatible.
+- Avoid validator-ignored JSON Schema assertions such as `format: "uri"` when they are not enforced by the current runtime.
 - The package naming and file layout match the RFC.
 - `SKILL.md` tells a later agent to invoke the public workflow directly, with no CLI-help detour.
 - `SKILL.md` includes a minimal valid input example and the correct execution path.

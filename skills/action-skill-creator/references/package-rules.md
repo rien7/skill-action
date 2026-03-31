@@ -36,6 +36,9 @@ Every action should define:
 - `output_schema`
 - `idempotent`
 
+Stay within the validator-supported JSON Schema subset.
+Do not rely on ignored assertions such as `format: "uri"` as if the runtime will enforce them.
+
 Composite actions also need:
 
 - `steps`
@@ -57,6 +60,9 @@ Composite actions also need:
 - `execute-action` is for targeted debugging or helper-level checks
 - `validate-skill-package` proves package shape, not execution
 - `validate-action-input` proves input-schema acceptance, not handler availability
+- prefer `--trace-level none` on happy-path execution and increase trace only after a failure
+- distinguish CLI `--dry-run` from any workflow-defined verification input such as `dry_run`
+- if the public execution path is already known, do not read manifests or implementation files before the first run
 - if the environment includes `action-runner`, prefer it for validation and execution
 
 ## Design Guidance

@@ -32,6 +32,7 @@ Use the smallest command that answers the question:
 - `execute-skill`
 
 Prefer `--output json` when you need to inspect or quote fields programmatically.
+Prefer `--trace-level none` on happy-path runs so large step payloads do not get pulled into context unless you are debugging.
 
 ### Match The Runtime Loading Model
 
@@ -57,6 +58,7 @@ Go straight to one of:
 - `execute-skill`
 
 Read CLI help only when the command surface itself is the unknown.
+If a package `SKILL.md` already gives the exact public execution path, do not pre-read `skill.json`, handler modules, or implementation files before the first run.
 
 ### Distinguish Input Payload From Full Request Payload
 
@@ -150,6 +152,7 @@ For full request objects:
 
 `--dry-run` and trace options are runtime-cli-specific execution extensions rather than RFC-core protocol fields.
 Use `--dry-run` when you want implementation-level validation and trace behavior without invoking primitive handlers.
+Do not confuse CLI `--dry-run` with a workflow-defined input field such as `dry_run`; the CLI flag skips primitive handlers, while an input field may intentionally keep earlier primitives live.
 
 ### 6. Interpret The Result Correctly
 
@@ -202,7 +205,7 @@ skill-action-runtime execute-action --skill-package ./skills/my-skill --skill-id
 Execute a skill:
 
 ```bash
-skill-action-runtime execute-skill --skill-package ./skills/my-skill --skill-id my.skill --input-file ./input.json --output json
+skill-action-runtime execute-skill --skill-package ./skills/my-skill --skill-id my.skill --trace-level none --input-file ./input.json --output json
 ```
 
 Use a full protocol request over stdin when you need to test exact runtime envelopes:
@@ -218,6 +221,7 @@ echo '{"skill_id":"my.skill","action_id":"workflow.main","input":{"value":4}}' \
 - `resolve-action` proves top-level addressability, not successful execution.
 - `validate-action-input` proves input-schema acceptance, not handler availability.
 - `execute-skill` always enters through the package `entry_action`.
+- Start with `--trace-level none` for happy-path proof and increase trace only when you need step-level debugging.
 - If you are using the runtime-cli-specific `--handler-module` extension and primitive execution fails, check whether the addressed primitive action has a loaded handler under `primitiveHandlers`.
 - For that extension path, prefer registering both `action_id` and `JSON.stringify([skill_id, action_id])` so the package stays usable without source inspection.
 - If the runtime response identifies a concrete binding or handler error, do not collapse it into a generic environment caveat.
