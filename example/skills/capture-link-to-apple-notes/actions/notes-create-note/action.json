@@ -1,0 +1,114 @@
+{
+  "action_id": "notes.create-note",
+  "kind": "primitive",
+  "title": "Create Apple Note",
+  "description": "Create a new Apple Note with fetched web content by calling osascript.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "request": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "note_title": {
+            "type": "string"
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "folder_name": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "fetch_result": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "fetch_url": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_length": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content_preview": {
+            "type": "string"
+          },
+          "suggested_title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fetch_url",
+          "content",
+          "content_length",
+          "content_preview",
+          "suggested_title"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": ["request", "fetch_result"],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "source_url": {
+        "type": "string"
+      },
+      "fetch_url": {
+        "type": "string"
+      },
+      "note_title": {
+        "type": "string"
+      },
+      "account_name": {
+        "type": "string"
+      },
+      "folder_name": {
+        "type": "string"
+      },
+      "note_created": {
+        "type": "boolean"
+      },
+      "note_id": {
+        "type": "string"
+      },
+      "content_length": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "content_preview": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "source_url",
+      "fetch_url",
+      "note_title",
+      "account_name",
+      "folder_name",
+      "note_created",
+      "note_id",
+      "content_length",
+      "content_preview"
+    ],
+    "additionalProperties": false
+  },
+  "idempotent": false
+}

@@ -1,0 +1,6 @@
+{
+  "skill_id": "capture.link_to_apple_notes",
+  "title": "Capture Link To Apple Notes",
+  "description": "Fetch webpage content through r.jina.ai and save it as a new Apple Note",
+  "entry_action": "workflow.capture-link"
+}

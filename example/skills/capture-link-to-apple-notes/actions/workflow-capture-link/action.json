@@ -1,0 +1,102 @@
+{
+  "action_id": "workflow.capture-link",
+  "kind": "composite",
+  "title": "Capture Link To Apple Notes",
+  "description": "Fetch webpage content through r.jina.ai and save it as a new Apple Note",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "note_title": {
+        "type": "string"
+      },
+      "account_name": {
+        "type": "string"
+      },
+      "folder_name": {
+        "type": "string"
+      },
+      "dry_run": {
+        "type": "boolean"
+      }
+    },
+    "required": ["url"],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "fetch_url": {
+        "type": "string"
+      },
+      "note_title": {
+        "type": "string"
+      },
+      "account_name": {
+        "type": "string"
+      },
+      "folder_name": {
+        "type": "string"
+      },
+      "note_created": {
+        "type": "boolean"
+      },
+      "note_id": {
+        "type": "string"
+      },
+      "content_length": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "content_preview": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "url",
+      "fetch_url",
+      "note_title",
+      "account_name",
+      "folder_name",
+      "note_created",
+      "note_id",
+      "content_length",
+      "content_preview"
+    ],
+    "additionalProperties": false
+  },
+  "idempotent": false,
+  "steps": [
+    {
+      "id": "fetchContent",
+      "action": "web.fetch-content",
+      "with": {
+        "url": "$input.url"
+      }
+    },
+    {
+      "id": "createNote",
+      "action": "notes.create-note",
+      "with": {
+        "request": "$input",
+        "fetch_result": "$steps.fetchContent.output"
+      }
+    }
+  ],
+  "returns": {
+    "url": "$input.url",
+    "fetch_url": "$steps.createNote.output.fetch_url",
+    "note_title": "$steps.createNote.output.note_title",
+    "account_name": "$steps.createNote.output.account_name",
+    "folder_name": "$steps.createNote.output.folder_name",
+    "note_created": "$steps.createNote.output.note_created",
+    "note_id": "$steps.createNote.output.note_id",
+    "content_length": "$steps.createNote.output.content_length",
+    "content_preview": "$steps.createNote.output.content_preview"
+  }
+}

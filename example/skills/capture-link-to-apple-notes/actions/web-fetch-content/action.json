@@ -1,0 +1,50 @@
+{
+  "action_id": "web.fetch-content",
+  "kind": "primitive",
+  "title": "Fetch Web Content",
+  "description": "Fetch web content through r.jina.ai by calling curl with the provided URL.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": ["url"],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "fetch_url": {
+        "type": "string"
+      },
+      "content": {
+        "type": "string"
+      },
+      "content_length": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "content_preview": {
+        "type": "string"
+      },
+      "suggested_title": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "url",
+      "fetch_url",
+      "content",
+      "content_length",
+      "content_preview",
+      "suggested_title"
+    ],
+    "additionalProperties": false
+  },
+  "idempotent": true
+}
