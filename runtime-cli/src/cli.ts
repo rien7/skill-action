@@ -62,7 +62,7 @@ function addPackageOptions(command: Command): Command {
 function addHandlerModuleOption(command: Command): Command {
   return command.option(
     "--handler-module <path>",
-    "Path to an ESM/CJS module exporting primitive handlers and optional global actions",
+    "Runtime-cli extension: path to an ESM/CJS module exporting primitiveHandlers for primitive execution",
   );
 }
 
@@ -80,9 +80,11 @@ function addRequestOptions(command: Command): Command {
 
 function addExecutionOptions(command: Command): Command {
   return command
-    .option("--dry-run", "Validate and trace execution without invoking primitive handlers")
+    .option("--dry-run", "Runtime-cli extension: validate and trace execution without invoking primitive handlers")
     .addOption(
-      new Option("--trace-level <level>", "Trace verbosity").choices(["none", "basic", "full"]).default("basic"),
+      new Option("--trace-level <level>", "Runtime-cli extension: trace verbosity")
+        .choices(["none", "basic", "full"])
+        .default("basic"),
     )
     .option("--timeout-ms <ms>", "Execution timeout in milliseconds", parseNumber)
     .option("--max-depth <n>", "Maximum execution depth", parseNumber)

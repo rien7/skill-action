@@ -77,10 +77,10 @@ The validation command checks package-level consistency such as:
 - manifest visibility matches action visibility
 - fully-qualified global action references are reported as external dependencies
 
-## Primitive Execution
+## Runtime-Cli Extensions
 
-For `resolve-action`, `validate-action-input`, `execute-action`, and `execute-skill`, you may provide a handler module.
-The handler module can supply primitive executors and runtime-global action definitions.
+The RFC core protocol does not define package-local handler modules.
+This CLI provides an implementation-specific extension via `--handler-module` for primitive execution.
 
 ```bash
 skill-action-runtime execute-skill \
@@ -92,10 +92,8 @@ skill-action-runtime execute-skill \
 
 The handler module may export:
 
-- `globalActions`
 - `primitiveHandlers`
-- `fallbackPrimitiveHandler`
-- or a default object containing either field
+- or a default object containing `primitiveHandlers`
 
 ## Troubleshooting
 
@@ -121,7 +119,8 @@ If `execute-action` or `execute-skill` returns `ok: true` with `data.status: "fa
 - nested action resolution failures
 - output validation failures
 
-When a primitive action depends on external execution logic, provide `--handler-module` with exports for `primitiveHandlers`, optional `fallbackPrimitiveHandler`, and optional `globalActions`.
+Only use `--handler-module` when you intentionally rely on this runtime-cli-specific extension.
+For RFC-core package validation and protocol checks, prefer flows that do not depend on handler-module wiring.
 
 ## Build
 
