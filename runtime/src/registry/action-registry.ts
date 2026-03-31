@@ -8,8 +8,8 @@ export interface RegisteredAction {
 }
 
 export interface ActionRegistry {
-  resolve(actionId: string, version?: string): Promise<RegisteredAction>;
-  list(actionId: string, version?: string): Promise<RegisteredAction[]>;
+  resolve(actionId: string): Promise<RegisteredAction>;
+  list(actionId: string): Promise<RegisteredAction[]>;
 }
 
 export class InMemoryActionRegistry implements ActionRegistry {
@@ -27,16 +27,11 @@ export class InMemoryActionRegistry implements ActionRegistry {
     this.actions.set(action.definition.action_id, existing);
   }
 
-  async list(actionId: string, version?: string): Promise<RegisteredAction[]> {
-    const entries = this.actions.get(actionId) ?? [];
-    if (!version) {
-      return [...entries];
-    }
-
-    return entries.filter((entry) => entry.definition.version === version);
+  async list(actionId: string): Promise<RegisteredAction[]> {
+    return [...(this.actions.get(actionId) ?? [])];
   }
 
-  async resolve(actionId: string, version?: string): Promise<RegisteredAction> {
+  async resolve(actionId: string): Promise<RegisteredAction> {
     const allEntries = this.actions.get(actionId);
     if (!allEntries || allEntries.length === 0) {
       throw new RuntimeError("ACTION_NOT_FOUND", `Action "${actionId}" was not found.`, {
@@ -44,37 +39,20 @@ export class InMemoryActionRegistry implements ActionRegistry {
       });
     }
 
-    if (!version) {
-      if (allEntries.length === 1) {
-        return allEntries[0]!;
-      }
-
-      throw new RuntimeError(
-        "ACTION_RESOLUTION_AMBIGUOUS",
-        `Action "${actionId}" resolved to multiple candidates.`,
-        {
-          action_id: actionId,
-          candidates: allEntries.map((entry) => ({
-            version: entry.definition.version ?? null,
-            skill_id: entry.skillId ?? null,
-            source_path: entry.sourcePath ?? null,
-          })),
-        },
-      );
+    if (allEntries.length === 1) {
+      return allEntries[0]!;
     }
 
-    const entries = allEntries.filter((entry) => entry.definition.version === version);
-    if (entries.length === 0) {
-      throw new RuntimeError(
-        "VERSION_NOT_FOUND",
-        `Version "${version}" was not found for action "${actionId}".`,
-        {
-          action_id: actionId,
-          version,
-        },
-      );
-    }
-
-    return entries[0]!;
+    throw new RuntimeError(
+      "ACTION_RESOLUTION_AMBIGUOUS",
+      `Action "${actionId}" resolved to multiple candidates.`,
+      {
+        action_id: actionId,
+        candidates: allEntries.map((entry) => ({
+          skill_id: entry.skillId ?? null,
+          source_path: entry.sourcePath ?? null,
+        })),
+      },
+    );
   }
 }

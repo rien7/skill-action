@@ -10,7 +10,6 @@ function createRuntime() {
       skillId: "math.skill",
       definition: {
         action_id: "math.add",
-        version: "1.0.0",
         kind: "primitive",
         title: "Add",
         description: "Add two numbers",
@@ -31,8 +30,6 @@ function createRuntime() {
           required: ["sum"],
           additionalProperties: false,
         },
-        visibility: "public",
-        side_effect: "none",
         idempotent: true,
       },
     },
@@ -40,7 +37,6 @@ function createRuntime() {
       skillId: "math.skill",
       definition: {
         action_id: "math.seed",
-        version: "1.0.0",
         kind: "primitive",
         title: "Seed",
         description: "Provide a starting value",
@@ -57,8 +53,6 @@ function createRuntime() {
           required: ["sum"],
           additionalProperties: false,
         },
-        visibility: "internal",
-        side_effect: "none",
         idempotent: true,
       },
     },
@@ -66,7 +60,6 @@ function createRuntime() {
       skillId: "math.skill",
       definition: {
         action_id: "workflow.doubleAdd",
-        version: "1.0.0",
         kind: "composite",
         title: "Double add",
         description: "Add twice using explicit returns.",
@@ -87,8 +80,6 @@ function createRuntime() {
           required: ["sum"],
           additionalProperties: false,
         },
-        visibility: "public",
-        side_effect: "none",
         idempotent: true,
         steps: [
           {
@@ -123,7 +114,6 @@ function createRuntime() {
       skillId: "bindings.skill",
       definition: {
         action_id: "workflow.bracketBinding",
-        version: "1.0.0",
         kind: "composite",
         title: "Bracket Binding",
         description: "Use bracket notation in bindings.",
@@ -143,8 +133,6 @@ function createRuntime() {
           required: ["value"],
           additionalProperties: false,
         },
-        visibility: "public",
-        side_effect: "none",
         idempotent: true,
         steps: [
           {
@@ -164,7 +152,6 @@ function createRuntime() {
       skillId: "bindings.skill",
       definition: {
         action_id: "bindings.echo",
-        version: "1.0.0",
         kind: "primitive",
         title: "Echo",
         description: "Echo a number",
@@ -184,8 +171,6 @@ function createRuntime() {
           required: ["value"],
           additionalProperties: false,
         },
-        visibility: "internal",
-        side_effect: "none",
         idempotent: true,
       },
     },
@@ -195,21 +180,17 @@ function createRuntime() {
     {
       definition: {
         skill_id: "math.skill",
-        version: "1.0.0",
         title: "Math",
         description: "Math operations",
         entry_action: "workflow.doubleAdd",
-        exposed_actions: ["workflow.doubleAdd"],
       },
     },
     {
       definition: {
         skill_id: "bindings.skill",
-        version: "1.0.0",
         title: "Bindings",
         description: "Binding tests",
         entry_action: "workflow.bracketBinding",
-        exposed_actions: ["workflow.bracketBinding"],
       },
     },
   ]);
@@ -333,14 +314,11 @@ describe("ActionRuntime", () => {
           skillId: "math.skill",
           definition: {
             action_id: "math.add",
-            version: "1.0.0",
             kind: "primitive",
             title: "Add",
             description: "Add two numbers",
             input_schema: { type: "object", additionalProperties: true },
             output_schema: { type: "object", additionalProperties: true },
-            visibility: "public",
-            side_effect: "none",
             idempotent: true,
           },
         },
@@ -349,11 +327,9 @@ describe("ActionRuntime", () => {
         {
           definition: {
             skill_id: "math.skill",
-            version: "1.0.0",
             title: "Math",
             description: "Math",
             entry_action: "math.add",
-            exposed_actions: ["math.add"],
           },
         },
       ]),
@@ -377,21 +353,17 @@ describe("ActionRuntime", () => {
         {
           definition: {
             skill_id: "dup.skill",
-            version: "1.0.0",
             title: "One",
             description: "First",
             entry_action: "a",
-            exposed_actions: [],
           },
         },
         {
           definition: {
             skill_id: "dup.skill",
-            version: "2.0.0",
             title: "Two",
             description: "Second",
             entry_action: "a",
-            exposed_actions: [],
           },
         },
       ]),
@@ -415,14 +387,11 @@ describe("ActionRuntime", () => {
           skillId: "one.skill",
           definition: {
             action_id: "math.shared",
-            version: "1.0.0",
             kind: "primitive",
             title: "Shared",
         description: "Shared id",
         input_schema: { type: "object", additionalProperties: true },
         output_schema: { type: "object", additionalProperties: true },
-        visibility: "public",
-        side_effect: "none",
         idempotent: true,
       },
     },
@@ -430,14 +399,11 @@ describe("ActionRuntime", () => {
           skillId: "two.skill",
           definition: {
             action_id: "math.shared",
-            version: "1.0.0",
             kind: "primitive",
             title: "Shared",
         description: "Shared id",
         input_schema: { type: "object", additionalProperties: true },
         output_schema: { type: "object", additionalProperties: true },
-        visibility: "public",
-        side_effect: "none",
         idempotent: true,
       },
     },
@@ -446,21 +412,17 @@ describe("ActionRuntime", () => {
         {
           definition: {
             skill_id: "one.skill",
-            version: "1.0.0",
             title: "One",
             description: "One",
             entry_action: "math.shared",
-            exposed_actions: [],
           },
         },
         {
           definition: {
             skill_id: "two.skill",
-            version: "1.0.0",
             title: "Two",
             description: "Two",
             entry_action: "math.shared",
-            exposed_actions: [],
           },
         },
       ]),

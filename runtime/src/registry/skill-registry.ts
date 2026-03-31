@@ -7,7 +7,7 @@ export interface RegisteredSkill {
 }
 
 export interface SkillRegistry {
-  resolve(skillId: string, version?: string): Promise<RegisteredSkill>;
+  resolve(skillId: string): Promise<RegisteredSkill>;
 }
 
 export class InMemorySkillRegistry implements SkillRegistry {
@@ -25,7 +25,7 @@ export class InMemorySkillRegistry implements SkillRegistry {
     this.skills.set(skill.definition.skill_id, existing);
   }
 
-  async resolve(skillId: string, version?: string): Promise<RegisteredSkill> {
+  async resolve(skillId: string): Promise<RegisteredSkill> {
     const entries = this.skills.get(skillId);
     if (!entries || entries.length === 0) {
       throw new RuntimeError("SKILL_NOT_FOUND", `Skill "${skillId}" was not found.`, {
@@ -33,50 +33,19 @@ export class InMemorySkillRegistry implements SkillRegistry {
       });
     }
 
-    if (!version) {
-      if (entries.length === 1) {
-        return entries[0]!;
-      }
-
-      throw new RuntimeError(
-        "SKILL_RESOLUTION_AMBIGUOUS",
-        `Skill "${skillId}" resolved to multiple packages.`,
-        {
-          skill_id: skillId,
-          candidates: entries.map((entry) => ({
-            version: entry.definition.version ?? null,
-            source_path: entry.sourcePath ?? null,
-          })),
-        },
-      );
+    if (entries.length === 1) {
+      return entries[0]!;
     }
 
-    const matches = entries.filter((entry) => entry.definition.version === version);
-    if (matches.length === 0) {
-      throw new RuntimeError(
-        "VERSION_NOT_FOUND",
-        `Version "${version}" was not found for skill "${skillId}".`,
-        {
-          skill_id: skillId,
-          version,
-        },
-      );
-    }
-
-    if (matches.length > 1) {
-      throw new RuntimeError(
-        "SKILL_RESOLUTION_AMBIGUOUS",
-        `Skill "${skillId}" resolved to multiple packages.`,
-        {
-          skill_id: skillId,
-          version,
-          candidates: matches.map((entry) => ({
-            source_path: entry.sourcePath ?? null,
-          })),
-        },
-      );
-    }
-
-    return matches[0]!;
+    throw new RuntimeError(
+      "SKILL_RESOLUTION_AMBIGUOUS",
+      `Skill "${skillId}" resolved to multiple packages.`,
+      {
+        skill_id: skillId,
+        candidates: entries.map((entry) => ({
+          source_path: entry.sourcePath ?? null,
+        })),
+      },
+    );
   }
 }

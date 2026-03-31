@@ -19,17 +19,12 @@ export { loadSkillPackageFromDirectory } from "./registry/file-system-loader.js"
 export { isRuntimeGlobalActionReference } from "./resolution/action-id.js";
 export {
   actionDefinitionSchema,
-  actionManifestSchema,
-  actionReferenceSchema,
   compositeActionDefinitionSchema,
   primitiveActionDefinitionSchema,
   type ActionBindingMap,
   type ActionDefinition,
-  type ActionManifest,
-  type ActionReference,
   type CompositeActionDefinition,
   type PrimitiveActionDefinition,
-  type Visibility,
 } from "./types/action.js";
 export {
   skillDefinitionSchema,

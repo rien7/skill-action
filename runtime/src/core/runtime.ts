@@ -69,7 +69,6 @@ interface InvocationContext {
 }
 
 interface ActionSelectionOptions {
-  version?: string;
   skillId: string;
 }
 
@@ -454,7 +453,7 @@ export class ActionRuntime {
     target: "input" | "output",
     schema: Record<string, unknown>,
   ): ValidateFunction {
-    const cacheKey = `${action.definition.action_id}@${action.definition.version}:${target}`;
+    const cacheKey = `${action.skillId ?? "_"}@${action.definition.action_id}:${target}`;
     const cached = this.validatorCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -484,49 +483,10 @@ export class ActionRuntime {
   }
 
   private assertVisibility(
-    action: RegisteredAction,
-    context: Pick<InvocationContext, "callMode" | "currentSkillId">,
+    _action: RegisteredAction,
+    _context: Pick<InvocationContext, "callMode" | "currentSkillId">,
   ): void {
-    const visibility = action.definition.visibility;
-
-    if (visibility === "public") {
-      return;
-    }
-
-    if (visibility === "skill") {
-      if (context.currentSkillId && context.currentSkillId === action.skillId) {
-        return;
-      }
-
-      throw new RuntimeError(
-        "VISIBILITY_VIOLATION",
-        `Action "${action.definition.action_id}" is restricted to skill scope.`,
-        {
-          action_id: action.definition.action_id,
-          visibility,
-          current_skill_id: context.currentSkillId ?? null,
-        },
-      );
-    }
-
-    if (
-      visibility === "internal" &&
-      context.callMode === "nested" &&
-      context.currentSkillId &&
-      context.currentSkillId === action.skillId
-    ) {
-      return;
-    }
-
-    throw new RuntimeError(
-      "VISIBILITY_VIOLATION",
-      `Action "${action.definition.action_id}" is restricted to internal action scope.`,
-      {
-        action_id: action.definition.action_id,
-        visibility,
-        current_skill_id: context.currentSkillId ?? null,
-      },
-    );
+    return;
   }
 
   private incrementStepCount(state: ExecutionState): void {
@@ -552,15 +512,14 @@ export class ActionRuntime {
     actionId: string,
     options: ActionSelectionOptions,
   ): Promise<RegisteredAction> {
-    const candidates = await this.actionRegistry.list(actionId, options.version);
+    const candidates = await this.actionRegistry.list(actionId);
     const localCandidates = candidates.filter((candidate) => candidate.skillId === options.skillId);
-    return this.selectResolvedAction(actionId, localCandidates, options.version);
+    return this.selectResolvedAction(actionId, localCandidates);
   }
 
   private selectResolvedAction(
     actionId: string,
     candidates: RegisteredAction[],
-    version?: string,
   ): RegisteredAction {
     if (candidates.length === 1) {
       return candidates[0]!;
@@ -568,18 +527,11 @@ export class ActionRuntime {
 
     if (candidates.length === 0) {
       throw new RuntimeError(
-        version ? "VERSION_NOT_FOUND" : "ACTION_NOT_FOUND",
-        version
-          ? `Version "${version}" was not found for action "${actionId}".`
-          : `Action "${actionId}" was not found.`,
-        version
-          ? {
-              action_id: actionId,
-              version,
-            }
-          : {
-              action_id: actionId,
-            },
+        "ACTION_NOT_FOUND",
+        `Action "${actionId}" was not found.`,
+        {
+          action_id: actionId,
+        },
       );
     }
 
@@ -589,7 +541,6 @@ export class ActionRuntime {
       {
         action_id: actionId,
         candidates: candidates.map((candidate) => ({
-          version: candidate.definition.version,
           skill_id: candidate.skillId ?? null,
           source_path: candidate.sourcePath ?? null,
         })),

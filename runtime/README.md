@@ -31,9 +31,9 @@ import { ActionRuntime, InMemoryActionRegistry, InMemorySkillRegistry } from "@r
 
 const actions = new InMemoryActionRegistry([
   {
+    skillId: "math.skill",
     definition: {
       action_id: "math.add",
-      version: "1.0.0",
       kind: "primitive",
       title: "Add",
       description: "Add two numbers",
@@ -54,28 +54,35 @@ const actions = new InMemoryActionRegistry([
         required: ["sum"],
         additionalProperties: false
       },
-      visibility: "public",
-      side_effect: "none",
       idempotent: true
     }
   }
 ]);
 
-const skills = new InMemorySkillRegistry();
+const skills = new InMemorySkillRegistry([
+  {
+    definition: {
+      skill_id: "math.skill",
+      title: "Math",
+      description: "Math operations",
+      entry_action: "math.add"
+    }
+  }
+]);
 
 const runtime = new ActionRuntime({
   actionRegistry: actions,
   skillRegistry: skills,
   primitiveHandlers: {
-    "math.add": async ({ input }) => {
+    "[\"math.skill\",\"math.add\"]": async ({ input }) => {
       const payload = input as { a: number; b: number };
       return { sum: payload.a + payload.b };
     }
   }
 });
 
-const response = await runtime.executeAction({
-  action_id: "math.add",
+const response = await runtime.executeSkill({
+  skill_id: "math.skill",
   input: { a: 2, b: 3 }
 });
 
@@ -84,7 +91,7 @@ console.log(response);
 
 ## Notes
 
-- Primitive action execution is handler-driven. You register handlers by `action_id`.
-- The runtime supports skill-local action resolution first, then runtime-global fallback for nested calls.
-- Composite actions support explicit RFC `returns` mappings. If `returns` is omitted, the runtime falls back to the last successfully executed step output for compatibility.
+- Primitive action execution is handler-driven. The runtime resolves primitive handlers by package action identity.
+- Nested composite steps resolve package-local `action_id` values only.
+- Composite actions require explicit RFC `returns` mappings.
 - Skill package loading is available through `loadSkillPackageFromDirectory`.
